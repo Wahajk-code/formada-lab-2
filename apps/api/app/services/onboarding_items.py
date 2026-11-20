@@ -20,6 +20,7 @@ from sqlalchemy import select
 from app.core.db import tenant_tx
 from app.core.errors import Conflict, Invalid, NotFound
 from app.core.logging import get_logger
+from app.domain import discovery_cards as dc
 from app.domain import onboarding as ob
 from app.domain.config import SCHEMA, coerce
 from app.integrations.llm import get_llm
@@ -575,7 +576,8 @@ async def revise_section(
     )
     if result.parsed is None:
         raise Conflict(f"the AI could not revise it: {result.error or 'no answer'}")
-    data = apply_section(out, section, result.parsed.model_dump(), profile)
+    revised = apply_section(out, section, result.parsed.model_dump(), profile)
+    data = dc.restore_locked(revised, out)
     said = re.sub(r"\s+", " ", instruction)
     saved = await _save_section(
         actor, tenant_id, base, section, data, f"{section} revised by AI: {said}", lock=False
@@ -588,3 +590,242 @@ async def revise_section(
         row.input_tokens, row.output_tokens = result.input_tokens, result.output_tokens
         row.latency_ms = result.latency_ms
     return saved
+
+
+# ---------------------------------------------------------------------------------------------
+# Discovery cards: edit, lock, and let the chat suggest changes to the cards the team names
+# ---------------------------------------------------------------------------------------------
+
+
+class CardChange(BaseModel):
+    card_id: str
+    field: str
+    value: str  # a list field (key_columns, caveats) is comma-separated text
+
+
+class CardChanges(BaseModel):
+    changes: list[CardChange]
+    note: str  # one sentence: what changed and why
+
+
+async def _cards_base(tenant_id: uuid.UUID, step_id: uuid.UUID) -> OnboardingStep:
+    await onboarding_collab.require_team_can_work(tenant_id, "discovery")
+    base = await svc._base(tenant_id, step_id, "discovery")
+    if base.status != "proposed":
+        raise Conflict("only an open proposal can be edited; run the analysis again first")
+    return base
+
+
+async def _save_cards(
+    actor: str,
+    tenant_id: uuid.UUID,
+    base: OnboardingStep,
+    data: dict[str, Any],
+    note: str,
+    touched: list[str],
+) -> dict[str, Any]:
+    checks = {**(base.checks or {}), "edited_by": actor, "edited_cards": touched}
+    result = await svc._edited_copy(actor, tenant_id, base, data, checks)
+    async with tenant_tx("service", tenant_id) as s:
+        row = await s.get(OnboardingStep, uuid.UUID(result["step_id"]))
+        assert row is not None
+        row.notes = note[:2000]
+    return result
+
+
+def _check_shape(data: dict[str, Any]) -> None:
+    try:
+        DiscoveryOut.model_validate({"semantic_views": [], **data})
+    except ValueError as exc:
+        raise Invalid(f"that change does not fit the guide: {str(exc)[:200]}") from exc
+
+
+async def edit_card(
+    actor: str, tenant_id: uuid.UUID, step_id: uuid.UUID, cid: str, fields: dict[str, Any]
+) -> dict[str, Any]:
+    """Change one card by hand. The card is locked by the edit, so no rerun can undo it."""
+    base = await _cards_base(tenant_id, step_id)
+    changes = [{"card_id": cid, "field": f, "value": v} for f, v in fields.items()]
+    if not changes:
+        raise Invalid("nothing to change")
+    data, applied, refused = dc.apply_changes(base.output or {}, changes, lock=True)
+    if refused:
+        raise Invalid("; ".join(f"{r['field']}: {r['reason']}" for r in refused))
+    if not applied:
+        raise Invalid("nothing changed")
+    _check_shape(data)
+    name = applied[0]["name"]
+    saved = await _save_cards(actor, tenant_id, base, data, f"{name} edited by hand", [cid])
+    return {**saved, "card_id": cid, "locked": True}
+
+
+async def set_card_lock(
+    actor: str, tenant_id: uuid.UUID, step_id: uuid.UUID, cid: str, lock: bool
+) -> dict[str, Any]:
+    base = await _cards_base(tenant_id, step_id)
+    data: dict[str, Any] = json.loads(json.dumps(base.output))
+    if cid not in dc.index(data):
+        raise NotFound("card")
+    held = set(data.get("locked_cards", []))
+    data["locked_cards"] = sorted(held | {cid} if lock else held - {cid})
+    word = "locked" if lock else "unlocked"
+    saved = await _save_cards(actor, tenant_id, base, data, f"card {word}: {cid}", [cid])
+    return {**saved, "card_id": cid, "locked": lock}
+
+
+def _profile_slice(profile: dict[str, Any], table: str) -> dict[str, Any]:
+    short = table.split(".")[-1].upper()
+    for t in profile.get("tables", []):
+        if str(t.get("table", "")).split(".")[-1].upper() == short:
+            return {
+                "table": t.get("table"),
+                "rows": t.get("rows"),
+                "columns": [
+                    {k: c.get(k) for k in ("column", "type", "fill_pct")}
+                    for c in t.get("columns", [])[:60]
+                ],
+            }
+    return {}
+
+
+async def card_context(tenant_id: uuid.UUID, ids: list[str]) -> list[dict[str, Any]]:
+    """What the chat gets for the cards the team mentioned: their fields, and for a table its
+    profiled columns. Read-only."""
+    if not ids:
+        return []
+    async with tenant_tx("service", tenant_id) as s:
+        row = await s.scalar(
+            select(OnboardingStep)
+            .where(
+                OnboardingStep.step == "discovery",
+                OnboardingStep.status.in_(("proposed", "approved")),
+                OnboardingStep.output.is_not(None),
+            )
+            .order_by(OnboardingStep.created_at.desc())
+            .limit(1)
+        )
+    if row is None or not row.output:
+        return []
+    out, profile = row.output, (row.input or {}).get("profile", {})
+    cards = dc.index(out)
+    found: list[dict[str, Any]] = []
+    for cid in ids[: dc.MAX_MENTIONS]:
+        if cid not in cards:
+            continue
+        kind, item = cards[cid]
+        entry: dict[str, Any] = {"card": cid, **dc.view(kind, item)}
+        entry["locked"] = dc.is_locked(out, cid) is not None
+        if kind == "table":
+            entry["profile"] = _profile_slice(profile, str(item.get("table", "")))
+        found.append(entry)
+    return found
+
+
+async def suggest_card_changes(
+    tenant_id: uuid.UUID, step_id: uuid.UUID, ids: list[str], instruction: str
+) -> dict[str, Any]:
+    """Ask the AI how to change the cards the team named. Nothing is saved: the team sees each
+    before and after and applies what they want. The AI sees only the named cards."""
+    instruction = instruction.strip()
+    if not instruction:
+        raise Invalid("say what should change")
+    if len(instruction) > INSTRUCTION_MAX:
+        raise Invalid(f"keep it under {INSTRUCTION_MAX} characters")
+    ids = list(dict.fromkeys(ids))
+    if not ids:
+        raise Invalid("mention at least one card with @")
+    if len(ids) > dc.MAX_MENTIONS:
+        raise Invalid(f"name at most {dc.MAX_MENTIONS} cards at a time")
+    base = await _cards_base(tenant_id, step_id)
+    out = base.output or {}
+    cards = dc.index(out)
+    unknown = [i for i in ids if i not in cards]
+    if unknown:
+        raise NotFound(f"card {unknown[0]}")
+    fixed = {i: reason for i in ids if (reason := dc.is_locked(out, i))}
+    editable = [i for i in ids if i not in fixed]
+    if not editable:
+        raise Conflict("every card you named is locked; unlock one to change it")
+    profile = (base.input or {}).get("profile", {})
+    async with tenant_tx("service", tenant_id) as s:
+        found = await agent_repo.active(s, AGENT)
+        if found is None:
+            raise Conflict(f"agent {AGENT} is not loaded: run make seed")
+        agent, prompt = found
+        choice = await _choice(s, agent)
+
+    def entry(cid: str) -> dict[str, Any]:
+        kind, item = cards[cid]
+        extra: dict[str, Any] = {}
+        if kind == "table":
+            extra = {"profile": _profile_slice(profile, str(item.get("table", "")))}
+        return {"card_id": cid, **dc.view(kind, item), **extra}
+
+    user = json.dumps(
+        {
+            "step": "discovery",
+            "task": "suggest changes to the cards in editable_cards, nothing else",
+            "instruction": instruction,
+            "editable_cards": [entry(i) for i in editable],
+            "locked_cards_read_only": [entry(i) for i in fixed],
+            "allowed_fields": {k: list(v) for k, v in dc.FIELDS.items()},
+            "rules": [
+                "return only the fields that must change, as card_id, field, value",
+                "make the smallest change that does what the instruction asks",
+                "never change a card that is not in editable_cards",
+                "list fields (key_columns, caveats) are comma-separated text",
+                "do not invent tables or columns that are not in the profile",
+            ],
+        },
+        ensure_ascii=False,
+        default=str,
+    )
+    result = await get_llm(choice.provider, choice.model).structured(
+        prompt.body, user, CardChanges, fake=CardChanges(changes=[], note=""), effort="low",
+        timeout_s=180,
+    )  # fmt: skip
+    log.info(
+        "onboarding.suggest_cards",
+        cards=len(ids),
+        model=result.model,
+        tokens=result.input_tokens + result.output_tokens,
+    )
+    if result.parsed is None:
+        raise Conflict(f"the AI could not suggest changes: {result.error or 'no answer'}")
+    proposed = [c.model_dump() for c in result.parsed.changes][:40]
+    allowed, refused = dc.filter_ai_changes(out, editable, proposed)
+    _, applied, more = dc.apply_changes(out, allowed, lock=False)
+    return {
+        "changes": applied,
+        "refused": refused + more,
+        "locked": [{"card_id": i, "reason": r} for i, r in fixed.items()],
+        "large": len(applied) > dc.LARGE_CHANGES or len(ids) > 5,
+        "note": result.parsed.note,
+    }
+
+
+async def apply_card_changes(
+    actor: str,
+    tenant_id: uuid.UUID,
+    step_id: uuid.UUID,
+    changes: list[dict[str, Any]],
+    note: str,
+    confirm_large: bool,
+) -> dict[str, Any]:
+    """Apply changes the team approved. Every rule is checked again here, not trusted."""
+    if len(changes) > 40:
+        raise Invalid("too many changes at once")
+    base = await _cards_base(tenant_id, step_id)
+    data, applied, refused = dc.apply_changes(base.output or {}, changes, lock=False)
+    if refused and not applied:
+        raise Invalid("; ".join(f"{r['field']}: {r['reason']}" for r in refused))
+    if not applied:
+        raise Invalid("nothing changed")
+    if len(applied) > dc.LARGE_CHANGES and not confirm_large:
+        raise Conflict("this changes many fields: confirm the large change to apply it")
+    _check_shape(data)
+    ids = sorted({a["card_id"] for a in applied})
+    said = " ".join(note.split())[:300]
+    note_text = f"{len(applied)} card changes by AI: {said}"
+    saved = await _save_cards(actor, tenant_id, base, data, note_text, ids)
+    return {**saved, "applied": applied, "refused": refused}

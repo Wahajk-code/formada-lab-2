@@ -4,7 +4,18 @@
 import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 
-import { askClient, askWorkspaceAI, lockDiscoverySection, reviseDiscoverySection } from "@/app/console-actions";
+import {
+  applyCardChanges,
+  askClient,
+  askWorkspaceAI,
+  editDiscoveryCard,
+  lockDiscoveryCard,
+  lockDiscoverySection,
+  reviseDiscoverySection,
+  suggestCardChanges,
+} from "@/app/console-actions";
+import { ChangeReview, type CardCtx } from "@/components/console/onboarding/card-tools";
+import { cardList, type CardSuggestion } from "@/lib/discovery-cards";
 import { EngineerChat } from "@/components/console/onboarding/engineer-chat";
 import { cn } from "@/lib/utils";
 import { FullGuide } from "@/components/console/onboarding/full-guide";
@@ -276,9 +287,39 @@ export function DiscoveryStage({
   const [pending, setPending] = useState("");
   const [thinking, setThinking] = useState(false);
   const [sent, setSent] = useState<Set<string>>(new Set());
+  const [mentioned, setMentioned] = useState<string[]>([]);
+  const [editing, setEditing] = useState<string | null>(null);
+  const [saved, setSaved] = useState<{ stepId: string; data: CardSuggestion } | null>(null);
+  // A new version of the proposal (an edit, a lock, a rerun) makes an old suggestion stale.
+  const suggestion = saved && saved.stepId === stepId ? saved.data : null;
+  const setSuggestion = (data: CardSuggestion | null) => setSaved(data ? { stepId, data } : null);
+  const [applying, setApplying] = useState(false);
   const [busy, start] = useTransition();
   const lockedSections: string[] = out.locked_sections ?? [];
   const locked = lockedSections.includes(section);
+  const cardRefs = useMemo(() => cardList(out), [out]);
+  const mentions = mentioned.filter((id) => cardRefs.some((c) => c.id === id));
+  const mention = (id: string) => setMentioned((cur) => (cur.includes(id) || cur.length >= 8 ? cur : [...cur, id]));
+  const cards: CardCtx = {
+    can,
+    cardLocked: new Set<string>(out.locked_cards ?? []),
+    sectionLocked: new Set<string>(lockedSections),
+    mentioned: new Set(mentions),
+    busy: false,
+    editing,
+    setEditing,
+    onLock: (id, lock) => {
+      void lockDiscoveryCard(workspaceId, stepId, id, lock).then((res) => {
+        if (res.ok) router.refresh();
+      });
+    },
+    onMention: mention,
+    onSave: async (id, fields) => {
+      const res = await editDiscoveryCard(workspaceId, stepId, id, fields);
+      if (res.ok) router.refresh();
+      return res.ok ? null : res.error;
+    },
+  };
 
   const profiles = useMemo(() => Object.fromEntries((guide?.profile.tables ?? []).map((t) => [t.table, t])), [guide]);
   const tables: TableRow[] = useMemo(
@@ -322,7 +363,7 @@ export function DiscoveryStage({
     push(s, { role: "user", text });
     setThinking(true);
     start(async () => {
-      const res = await askWorkspaceAI(workspaceId, "discovery", text, history);
+      const res = await askWorkspaceAI(workspaceId, "discovery", text, history, mentions);
       if (res.ok && res.data) {
         const { answer, sources, grounded, unverified } = res.data;
         push(s, { role: "assistant", text: answer, check: { sources, grounded, unverified } });
@@ -334,6 +375,27 @@ export function DiscoveryStage({
   const rerun = (text: string) => {
     const s = section;
     setPending(text);
+    if (mentions.length) {
+      // Only the cards named with @ may change, and the team approves each change.
+      start(async () => {
+        const res = await suggestCardChanges(workspaceId, stepId, mentions, text);
+        push(
+          s,
+          { role: "user", text },
+          {
+            role: "assistant",
+            text: res.ok
+              ? res.data!.changes.length
+                ? `I suggest ${res.data!.changes.length} ${res.data!.changes.length === 1 ? "change" : "changes"}. Nothing is saved until you apply them.`
+                : "I found nothing to change on those cards."
+              : res.error,
+          },
+        );
+        if (res.ok) setSuggestion(res.data!);
+        setPending("");
+      });
+      return;
+    }
     start(async () => {
       const res = await reviseDiscoverySection(workspaceId, stepId, s, text);
       push(
@@ -348,6 +410,28 @@ export function DiscoveryStage({
       );
       setPending("");
       if (res.ok) router.refresh();
+    });
+  };
+
+  const applySuggestion = (picked: CardSuggestion["changes"], confirmLarge: boolean) => {
+    if (!suggestion) return;
+    setApplying(true);
+    void applyCardChanges(
+      workspaceId,
+      stepId,
+      picked.map((c) => ({ card_id: c.card_id, field: c.field, value: c.after })),
+      suggestion.note,
+      confirmLarge,
+    ).then((res) => {
+      setApplying(false);
+      push(section, {
+        role: "assistant",
+        text: res.ok ? `Applied ${picked.length} ${picked.length === 1 ? "change" : "changes"}. Review the cards, and lock the ones that are right.` : res.error,
+      });
+      if (res.ok) {
+        setSuggestion(null);
+        router.refresh();
+      }
     });
   };
 
@@ -400,7 +484,7 @@ export function DiscoveryStage({
           )}
         </div>
 
-        {section === "guide" && <FullGuide out={out} guide={guide} />}
+        {section === "guide" && <FullGuide out={out} guide={guide} cards={{ ...cards, busy }} />}
 
         {section === "relationships" && (
           <div className="discovery-relationships">
@@ -616,12 +700,21 @@ export function DiscoveryStage({
           rerun={
             can
               ? {
-                  disabled: locked || busy,
-                  locked,
-                  hint: locked ? "Section locked. You can still ask questions." : "Rerunning only applies your instructions to this section.",
+                  disabled: busy || (!mentions.length && locked),
+                  locked: !mentions.length && locked,
+                  label: mentions.length ? `Suggest changes to ${mentions.length} ${mentions.length === 1 ? "card" : "cards"}` : undefined,
+                  hint: mentions.length
+                    ? "Only the cards you mention can change. Locked cards never do. You approve every change."
+                    : locked
+                      ? "Section locked. You can still ask questions."
+                      : "Rerunning only applies your instructions to this section. Mention cards with @ to change only those.",
                 }
               : null
           }
+          mentionables={cardRefs.map((c) => ({ id: c.id, label: c.label, kind: c.kind, locked: c.locked }))}
+          mentions={mentions}
+          onMentions={setMentioned}
+          extra={suggestion ? <ChangeReview suggestion={suggestion} applying={applying} onApply={applySuggestion} onDiscard={() => setSuggestion(null)} /> : undefined}
           onAsk={ask}
           onRerun={rerun}
         />

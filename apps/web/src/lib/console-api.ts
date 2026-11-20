@@ -4,6 +4,8 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { cache } from "react";
 
+import type { CardSuggestion } from "@/lib/discovery-cards";
+
 import {
   ApiError,
   type AnswerCheck,
@@ -656,7 +658,7 @@ export type OnboardingGuide = {
       table: string;
       base_table: string | null;
       comment: string;
-      measured?: Record<string, any> | null;
+      measured?: { first_date?: string; last_date?: string; [k: string]: unknown } | null;
       dimensions: { name: string; type: string | null; comment: string }[];
       metrics: { name: string; expression: string; comment: string }[];
     }[];
@@ -665,9 +667,9 @@ export type OnboardingGuide = {
   time_profile?: {
     date_column: string | null;
     entity_columns: string[];
-    cadence: any[];
-    breaks: any[];
-    filled_late: any[];
+    cadence: { from: string; to: string; step_days: number; count: number }[];
+    breaks: { from: string; to: string; rows?: number[] }[];
+    filled_late: { column: string; first_date: string }[];
     dates: { date: string; rows: number }[];
   };
   categories?: { column: string; values: { value: string; rows: number }[] }[];
@@ -879,12 +881,21 @@ export const consoleApi = {
     send("POST", `/workspaces/${id}/onboarding/org-draft/return`, { body }),
   resendWelcome: (id: string) => send<{ status: string; to: string; link?: string }>("POST", `/workspaces/${id}/welcome`, {}),
   onboardingGuide: (id: string) => request<OnboardingGuide>(`/workspaces/${id}/onboarding/guide`),
-  askWorkspaceAI: (id: string, step: ThreadStep, question: string, history: AssistantTurn[]) =>
+  askWorkspaceAI: (id: string, step: ThreadStep, question: string, history: AssistantTurn[], cards: string[] = []) =>
     send<AnswerCheck & { answer: string }>("POST", `/workspaces/${id}/onboarding/assistant`, {
       step,
       question,
       history: history.map(({ role, text }) => ({ role, text })),
+      cards,
     }),
+  editCard: (id: string, stepId: string, cardId: string, fields: Record<string, unknown>) =>
+    send<{ status: string; step_id: string; card_id: string; locked: boolean }>("POST", `/workspaces/${id}/onboarding/discovery/${stepId}/cards/edit`, { card_id: cardId, fields }),
+  lockCard: (id: string, stepId: string, cardId: string, locked: boolean) =>
+    send<{ status: string; step_id: string; locked: boolean }>("POST", `/workspaces/${id}/onboarding/discovery/${stepId}/cards/lock`, { card_id: cardId, locked }),
+  suggestCards: (id: string, stepId: string, cardIds: string[], instruction: string) =>
+    send<CardSuggestion>("POST", `/workspaces/${id}/onboarding/discovery/${stepId}/cards/suggest`, { card_ids: cardIds, instruction }),
+  applyCards: (id: string, stepId: string, changes: { card_id: string; field: string; value: unknown }[], note: string, confirmLarge: boolean) =>
+    send<{ status: string; step_id: string }>("POST", `/workspaces/${id}/onboarding/discovery/${stepId}/cards/apply`, { changes, note, confirm_large: confirmLarge }),
   aiLab: (workspaceId?: string) => request<LabOverview>(`/ai-lab${workspaceId ? `?workspace_id=${workspaceId}` : ""}`),
   aiLabRuns: (id: string, step: string) => request<LabRuns>(`/workspaces/${id}/ai-lab/${step}`),
   aiLabTest: (id: string, step: string, body: LabTestBody) =>

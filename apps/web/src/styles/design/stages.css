@@ -434,3 +434,43 @@
 .schema-table header > span { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .schema-table li code { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .discovery-join code { overflow-wrap: anywhere; }
+
+/* Discovery cards: edit, lock, mention in the chat */
+.card-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
+.card-bar button { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border: 1px solid var(--fd-border); border-radius: 999px; background: var(--fd-white); color: var(--ink); font-size: 12px; font-weight: 600; cursor: pointer; }
+.card-bar button:hover:not(:disabled) { background: var(--fd-surface); }
+.card-bar button:disabled { opacity: .5; cursor: not-allowed; }
+.card-bar .card-lock-toggle.on { border-color: #bfe6d6; background: #eef9f4; color: #215f52; }
+.card-lock-badge { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border-radius: 999px; background: #eef9f4; border: 1px solid #bfe6d6; color: #215f52; font-size: 12px; font-weight: 700; }
+.is-locked { box-shadow: inset 3px 0 0 #2f9583; }
+.stage-table td .card-bar { margin-top: 0; flex-wrap: nowrap; }
+.fg-after > td { padding: 0 !important; background: var(--fd-surface); }
+.fg-evidence li.is-locked { padding-left: 10px; }
+.card-editor { display: grid; gap: 10px; margin-top: 10px; padding: 14px; border: 1px solid var(--fd-border); border-radius: 14px; background: var(--fd-white); }
+.card-editor-fields { display: grid; gap: 10px; }
+
+/* @ mentions in the chat */
+.mention-wrap { position: relative; }
+.mention-chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 10px 0; }
+.mention-chip { display: inline-flex; align-items: center; gap: 5px; padding: 3px 4px 3px 9px; border-radius: 999px; background: var(--soft-violet); color: #4a2e92; font-size: 12px; font-weight: 600; }
+.mention-chip.is-locked { background: #eef9f4; color: #215f52; }
+.mention-chip button { display: grid; place-items: center; width: 18px; height: 18px; border: 0; border-radius: 50%; background: transparent; color: inherit; cursor: pointer; }
+.mention-chip button:hover { background: rgba(0,0,0,.08); }
+.mention-picker { position: absolute; left: 8px; bottom: calc(100% - 4px); z-index: 20; width: min(360px, calc(100% - 16px)); max-height: 260px; overflow: auto; margin: 0; padding: 6px; list-style: none; border: 1px solid var(--fd-border); border-radius: 14px; background: var(--fd-white); box-shadow: 0 10px 30px #24193822; }
+.mention-picker button { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 9px; border: 0; border-radius: 9px; background: transparent; text-align: left; font-size: 13px; cursor: pointer; }
+.mention-picker button.on, .mention-picker button:hover { background: var(--soft-violet); }
+.mention-kind { flex: none; min-width: 62px; color: var(--fd-secondary); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+.mention-name { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+.mention-empty { padding: 8px 10px; color: var(--fd-secondary); font-size: 13px; }
+
+/* Review of suggested changes */
+.change-review { display: grid; gap: 10px; width: 100%; padding: 14px; border: 1px solid var(--fd-border); border-radius: 14px; background: var(--fd-white); font-size: 13px; }
+.change-review p { margin: 0; color: var(--fd-secondary); }
+.change-review ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.change-review label { display: flex; align-items: flex-start; gap: 8px; cursor: pointer; }
+.change-diff { display: grid; gap: 4px; margin: 6px 0 0 24px; }
+.change-diff del, .change-diff ins { display: block; padding: 6px 9px; border-radius: 8px; text-decoration: none; overflow-wrap: anywhere; }
+.change-diff del { background: #fdeeee; color: #8a2c2c; text-decoration: line-through; }
+.change-diff ins { background: #eef9f4; color: #1f5a4c; }
+.change-confirm { padding: 8px 10px; border-radius: 10px; background: #fff6e5; }
+.engineer-turn-extra { display: block; }

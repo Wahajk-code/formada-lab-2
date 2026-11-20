@@ -262,9 +262,15 @@ async def _call(
 
 
 async def team_ask(
-    tenant_id: uuid.UUID, step: str, question: str, history: list[Turn]
-) -> dict[str, Any]:
+    tenant_id: uuid.UUID, step: str, question: str, history: list[Turn],
+    cards: list[str] | None = None,
+) -> dict[str, Any]:  # fmt: skip
     ctx = await _team_context(tenant_id)
+    if cards:
+        from app.services import onboarding_items
+
+        # Cards the team mentioned with @: the chat answers about exactly these.
+        ctx["mentioned_cards"] = await onboarding_items.card_context(tenant_id, cards)
     out = await _call(tenant_id, "team", step, question, ctx, history)
     return {"answer": out.answer, **_check(out, ctx)}
 

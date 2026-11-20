@@ -28,7 +28,15 @@ type Props = {
   rerun?: RerunConfig | null;
   onAsk: (text: string) => void;
   onRerun?: (text: string) => void;
+  /** Cards the user can name with @ (IDE-style). Optional: other steps do not use it. */
+  mentionables?: Mentionable[];
+  mentions?: string[];
+  onMentions?: (ids: string[]) => void;
+  /** Rendered after the last message: the review of changes the assistant suggests. */
+  extra?: React.ReactNode;
 };
+
+export type Mentionable = { id: string; label: string; kind: string; locked: boolean };
 
 /** The engineering assistant (Formada.AI design, engineer-chat): ask about the section, or
  * rerun just that section with a correction. */
@@ -73,6 +81,10 @@ function Chat({
   rerun,
   onAsk,
   onRerun,
+  mentionables = [],
+  mentions = [],
+  onMentions,
+  extra,
   draft,
   setDraft,
   expanded,
@@ -80,7 +92,25 @@ function Chat({
 }: Props & { draft: string; setDraft: (v: string) => void; expanded: boolean; onView: () => void }) {
   const scroll = useRef<HTMLDivElement>(null);
   const busy = Boolean(pending) || thinking;
-  const hasConversation = turns.length > 0 || busy;
+  const hasConversation = turns.length > 0 || busy || Boolean(extra);
+  const [picker, setPicker] = useState<{ query: string; start: number; end: number; index: number } | null>(null);
+  const byId = new Map(mentionables.map((m) => [m.id, m]));
+  const options = picker
+    ? mentionables
+        .filter((m) => !mentions.includes(m.id) && `${m.kind} ${m.label}`.toLowerCase().includes(picker.query.toLowerCase()))
+        .slice(0, 8)
+    : [];
+  const choose = (m: Mentionable) => {
+    if (!picker || !onMentions) return;
+    setDraft(`${draft.slice(0, picker.start)}${draft.slice(picker.end)}`.replace(/ {2,}/g, " "));
+    if (mentions.length < 8) onMentions([...mentions, m.id]);
+    setPicker(null);
+  };
+  const watch = (value: string, caret: number) => {
+    if (!onMentions || !mentionables.length) return;
+    const found = /(^|\s)@([^\s@]*)$/.exec(value.slice(0, caret));
+    setPicker(found ? { query: found[2], start: caret - found[2].length - 1, end: caret, index: 0 } : null);
+  };
   useEffect(() => {
     const el = scroll.current;
     if (el) el.scrollTop = el.scrollHeight;
@@ -155,6 +185,7 @@ function Chat({
                 </li>
               </>
             )}
+            {extra && <li className="engineer-turn engineer-turn-assistant engineer-turn-extra">{extra}</li>}
           </ol>
         ) : (
           <div className="engineer-chat-welcome">
@@ -182,21 +213,83 @@ function Chat({
             submit("ask");
           }}
         >
-          <textarea
-            aria-label="Message to the engineering assistant"
-            name="message"
-            rows={2}
-            maxLength={1000}
-            placeholder={placeholder}
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key !== "Enter" || e.shiftKey || e.nativeEvent.isComposing) return;
-              e.preventDefault();
-              submit("ask");
-            }}
-          />
+          {mentions.length > 0 && (
+            <div className="mention-chips" aria-label="Cards in this message">
+              {mentions.map((id) => {
+                const m = byId.get(id);
+                return (
+                  <span key={id} className={`mention-chip${m?.locked ? " is-locked" : ""}`} title={m?.locked ? "Locked: it will not be changed" : "Can be changed"}>
+                    <span aria-hidden="true">@</span>
+                    {m?.label ?? id}
+                    {m?.locked && <Icon name="lock" size={12} />}
+                    <button type="button" aria-label={`Remove ${m?.label ?? id}`} onClick={() => onMentions?.(mentions.filter((x) => x !== id))}>
+                      <Icon name="x" size={12} />
+                    </button>
+                  </span>
+                );
+              })}
+            </div>
+          )}
+          <div className="mention-wrap">
+            <textarea
+              aria-label="Message to the engineering assistant"
+              name="message"
+              rows={2}
+              maxLength={1000}
+              placeholder={placeholder}
+              value={draft}
+              onChange={(e) => {
+                setDraft(e.target.value);
+                watch(e.target.value, e.target.selectionStart ?? e.target.value.length);
+              }}
+              onKeyDown={(e) => {
+                if (picker && options.length) {
+                  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                    e.preventDefault();
+                    const n = options.length;
+                    setPicker({ ...picker, index: (picker.index + (e.key === "ArrowDown" ? 1 : n - 1)) % n });
+                    return;
+                  }
+                  if (e.key === "Enter" || e.key === "Tab") {
+                    e.preventDefault();
+                    choose(options[Math.min(picker.index, options.length - 1)]);
+                    return;
+                  }
+                }
+                if (picker && e.key === "Escape") {
+                  setPicker(null);
+                  return;
+                }
+                if (e.key !== "Enter" || e.shiftKey || e.nativeEvent.isComposing) return;
+                e.preventDefault();
+                submit("ask");
+              }}
+            />
+            {picker && (
+              <ul className="mention-picker" role="listbox" aria-label="Cards you can mention">
+                {options.length ? (
+                  options.map((m, i) => (
+                    <li key={m.id} role="option" aria-selected={i === picker.index}>
+                      <button type="button" className={i === picker.index ? "on" : ""} onMouseDown={(e) => { e.preventDefault(); choose(m); }}>
+                        <span className="mention-kind">{m.kind}</span>
+                        <span className="mention-name">{m.label}</span>
+                        {m.locked && <Icon name="lock" size={12} />}
+                      </button>
+                    </li>
+                  ))
+                ) : (
+                  <li className="mention-empty">No card matches</li>
+                )}
+              </ul>
+            )}
+          </div>
           <div className="engineer-composer-toolbar">
+            {onMentions && mentionables.length > 0 && (
+              <button className="engineer-rerun" type="button" title="Mention a card" onClick={() => { setDraft(`${draft}${draft && !draft.endsWith(" ") ? " " : ""}@`); setPicker({ query: "", start: draft.length + (draft && !draft.endsWith(" ") ? 1 : 0), end: draft.length + (draft && !draft.endsWith(" ") ? 2 : 1), index: 0 }); }}>
+                <span aria-hidden="true">@</span>
+                <span>Mention</span>
+              </button>
+            )}
             {rerun && (
               <button
                 className="engineer-rerun"

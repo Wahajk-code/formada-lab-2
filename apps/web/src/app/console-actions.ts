@@ -304,8 +304,30 @@ export async function resendWelcome(id: string) {
   return attempt(() => consoleApi.resendWelcome(id), ob(id));
 }
 
-export async function askWorkspaceAI(id: string, step: ThreadStep, question: string, history: AssistantTurn[]) {
-  return attempt(() => consoleApi.askWorkspaceAI(id, step, question, history), []);
+export async function askWorkspaceAI(id: string, step: ThreadStep, question: string, history: AssistantTurn[], cards: string[] = []) {
+  return attempt(() => consoleApi.askWorkspaceAI(id, step, question, history, cards), []);
+}
+
+export async function editDiscoveryCard(id: string, stepId: string, cardId: string, fields: Record<string, unknown>) {
+  return attempt(() => consoleApi.editCard(id, stepId, cardId, fields), ob(id));
+}
+
+export async function lockDiscoveryCard(id: string, stepId: string, cardId: string, locked: boolean) {
+  return attempt(() => consoleApi.lockCard(id, stepId, cardId, locked), ob(id));
+}
+
+export async function suggestCardChanges(id: string, stepId: string, cardIds: string[], instruction: string) {
+  return attempt(() => consoleApi.suggestCards(id, stepId, cardIds, instruction), []);
+}
+
+export async function applyCardChanges(
+  id: string,
+  stepId: string,
+  changes: { card_id: string; field: string; value: unknown }[],
+  note: string,
+  confirmLarge: boolean,
+) {
+  return attempt(() => consoleApi.applyCards(id, stepId, changes, note, confirmLarge), ob(id));
 }
 
 export async function editMetricsProposal(id: string, stepId: string, edits: Record<string, unknown>[]) {

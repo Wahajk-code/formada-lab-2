@@ -494,6 +494,66 @@ async def onboarding_unlock_section(
     return await onboarding_items.set_section_lock(staff.actor, tenant_id, step_id, section, False)
 
 
+class CardEditIn(BaseModel):
+    card_id: str = Field(max_length=200)
+    fields: dict[str, Any] = Field(max_length=6)
+
+
+class CardLockIn(BaseModel):
+    card_id: str = Field(max_length=200)
+    locked: bool
+
+
+class CardSuggestIn(BaseModel):
+    card_ids: list[str] = Field(min_length=1, max_length=8)
+    instruction: str = Field(max_length=2000)
+
+
+class CardApplyIn(BaseModel):
+    changes: list[dict[str, Any]] = Field(max_length=40)
+    note: str = Field(default="", max_length=2000)
+    confirm_large: bool = False
+
+
+@router.post("/workspaces/{tenant_id}/onboarding/discovery/{step_id}/cards/edit")
+async def onboarding_edit_card(
+    tenant_id: uuid.UUID, step_id: uuid.UUID, body: CardEditIn, staff: ConfigWriter
+) -> dict[str, Any]:
+    """Change one discovery card by hand. The edit locks the card."""
+    return await onboarding_items.edit_card(
+        staff.actor, tenant_id, step_id, body.card_id, body.fields
+    )
+
+
+@router.post("/workspaces/{tenant_id}/onboarding/discovery/{step_id}/cards/lock")
+async def onboarding_lock_card(
+    tenant_id: uuid.UUID, step_id: uuid.UUID, body: CardLockIn, staff: ConfigWriter
+) -> dict[str, Any]:
+    return await onboarding_items.set_card_lock(
+        staff.actor, tenant_id, step_id, body.card_id, body.locked
+    )
+
+
+@router.post("/workspaces/{tenant_id}/onboarding/discovery/{step_id}/cards/suggest")
+async def onboarding_suggest_cards(
+    tenant_id: uuid.UUID, step_id: uuid.UUID, body: CardSuggestIn, staff: ConfigWriter
+) -> dict[str, Any]:
+    """Ask the AI how to change the cards the team named. Saves nothing."""
+    return await onboarding_items.suggest_card_changes(
+        tenant_id, step_id, body.card_ids, body.instruction
+    )
+
+
+@router.post("/workspaces/{tenant_id}/onboarding/discovery/{step_id}/cards/apply")
+async def onboarding_apply_cards(
+    tenant_id: uuid.UUID, step_id: uuid.UUID, body: CardApplyIn, staff: ConfigWriter
+) -> dict[str, Any]:
+    """Apply the card changes the team approved; every rule is checked again."""
+    return await onboarding_items.apply_card_changes(
+        staff.actor, tenant_id, step_id, body.changes, body.note, body.confirm_large
+    )
+
+
 @router.post("/workspaces/{tenant_id}/onboarding/{step}/{step_id}/items/{key}/unlock")
 async def onboarding_unlock_item(
     tenant_id: uuid.UUID, step: ItemStep, step_id: uuid.UUID, key: str, staff: ConfigWriter
@@ -538,6 +598,7 @@ class AssistantIn(BaseModel):
     step: Literal["connect", "discovery", "mapping", "org", "metrics", "rules", "trial"]
     question: str = Field(max_length=2000)
     history: list[dict[str, Any]] = Field(default=[], max_length=20)
+    cards: list[str] = Field(default=[], max_length=8)  # discovery cards mentioned with @
 
 
 class MetricEditIn(BaseModel):
@@ -584,7 +645,7 @@ async def onboarding_assistant(
 ) -> dict[str, Any]:
     """Ask the AI about this workspace (team context)."""
     history = [assistant.Turn(**t) for t in body.history]
-    return await assistant.team_ask(tenant_id, body.step, body.question, history)
+    return await assistant.team_ask(tenant_id, body.step, body.question, history, body.cards)
 
 
 @router.post("/workspaces/{tenant_id}/onboarding/metrics/{step_id}/edit")

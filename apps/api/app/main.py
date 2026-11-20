@@ -16,7 +16,10 @@ configure_logging(settings.log_level, settings.log_json)
 log = get_logger(__name__)
 
 if settings.env != "local":  # a deployed API refuses to start with weak or missing secrets
-    for name, value in (("AUTH_JWT_SECRET", settings.auth_jwt_secret), ("INTERNAL_SERVICE_TOKEN", settings.internal_service_token)):
+    for name, value in (
+        ("AUTH_JWT_SECRET", settings.auth_jwt_secret),
+        ("INTERNAL_SERVICE_TOKEN", settings.internal_service_token),
+    ):
         if len(value) < 32:
             raise RuntimeError(f"{name} must be at least 32 characters outside local use")
 

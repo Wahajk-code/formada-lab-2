@@ -21,6 +21,7 @@ from app.core.db import global_tx, tenant_tx
 from app.core.errors import Conflict, Invalid, NotFound
 from app.core.logging import get_logger
 from app.core.settings import get_settings
+from app.domain import discovery_cards as dc
 from app.domain import onboarding as ob
 from app.domain import onboarding_flow as flow
 from app.domain import org_import, semantic
@@ -603,8 +604,11 @@ async def _restore_sections(tenant_id: uuid.UUID, output: dict[str, Any]) -> dic
     from app.services import onboarding_items as oi
 
     previous = await _latest_output(tenant_id, "discovery")
+    if output.get("raw"):
+        return output
+    output = dc.restore_locked(output, previous)  # locked cards come back, field by field
     keep = [k for k in previous.get("locked_sections", []) if k in oi.SECTIONS]
-    if not keep or output.get("raw"):
+    if not keep:
         return output
     for section in list(keep):
         try:

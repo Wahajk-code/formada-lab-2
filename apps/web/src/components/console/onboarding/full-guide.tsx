@@ -1,9 +1,11 @@
 "use client";
 /* eslint-disable @typescript-eslint/no-explicit-any -- agent outputs are schema-checked JSON */
 
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 
+import { CardBar, CardEditor, type CardCtx } from "@/components/console/onboarding/card-tools";
 import { Icon } from "@/components/ui/icon";
+import { cardId } from "@/lib/discovery-cards";
 import type { OnboardingGuide } from "@/lib/console-api";
 import { cn } from "@/lib/utils";
 
@@ -61,7 +63,7 @@ function Fold({ title, note, children, open }: { title: string; note?: string; c
   );
 }
 
-function Grid({ head, rows }: { head: string[]; rows: React.ReactNode[][] }) {
+function Grid({ head, rows, after }: { head: string[]; rows: React.ReactNode[][]; after?: (i: number) => React.ReactNode }) {
   return (
     <div className="stage-table-scroll">
       <table className="stage-table">
@@ -76,11 +78,18 @@ function Grid({ head, rows }: { head: string[]; rows: React.ReactNode[][] }) {
         </thead>
         <tbody>
           {rows.map((r, i) => (
-            <tr key={i}>
-              {r.map((c, j) => (
-                <td key={j}>{c}</td>
-              ))}
-            </tr>
+            <Fragment key={i}>
+              <tr>
+                {r.map((c, j) => (
+                  <td key={j}>{c}</td>
+                ))}
+              </tr>
+              {after?.(i) ? (
+                <tr className="fg-after">
+                  <td colSpan={head.length}>{after(i)}</td>
+                </tr>
+              ) : null}
+            </Fragment>
           ))}
         </tbody>
       </table>
@@ -113,7 +122,7 @@ function FieldList({ head, rows, label }: { head: string[]; rows: React.ReactNod
   );
 }
 
-export function FullGuide({ out, guide }: { out: any; guide: OnboardingGuide | null }) {
+export function FullGuide({ out, guide, cards }: { out: any; guide: OnboardingGuide | null; cards?: CardCtx }) {
   const profiles = useMemo(() => Object.fromEntries((guide?.profile.tables ?? []).map((t) => [t.table, t])), [guide]);
   const views = useMemo(() => guide?.semantic_views ?? [], [guide]);
   const time = guide?.time_profile;
@@ -170,14 +179,28 @@ export function FullGuide({ out, guide }: { out: any; guide: OnboardingGuide | n
   const general = issues.filter((q) => !placed.has(q));
   const visible = sections.filter((s) => (open === "all" || open === s.key) && (s.base.length || s.sem.length));
 
+  const tools = (kind: "table" | "issue" | "coverage" | "question" | "view", item: any, section: "guide" | "gaps") => {
+    if (!cards) return null;
+    const id = cardId(kind, item);
+    return (
+      <>
+        <CardBar id={id} section={section} ctx={cards} />
+        {cards.editing === id && <CardEditor key={id} id={id} kind={kind} item={item} ctx={cards} />}
+      </>
+    );
+  };
+  const isLocked = (kind: "table" | "issue" | "coverage" | "question" | "view", item: any, section: "guide" | "gaps") =>
+    Boolean(cards && (cards.sectionLocked.has(section) || cards.cardLocked.has(cardId(kind, item))));
+
   const issueRow = (q: any, i: number) => (
-    <article key={i} className="fg-issue">
+    <article key={i} className={cn("fg-issue", isLocked("issue", q, "gaps") && "is-locked")}>
       <div>
         <strong>{q.title}</strong>
         <p>{q.evidence}</p>
         <p>
           <b>Impact:</b> {q.impact} <b>How we handle it:</b> {q.suggested_handling}
         </p>
+        {tools("issue", q, "gaps")}
       </div>
       <Chip tone={SEVERITY_TONE[q.severity as keyof typeof SEVERITY_TONE]}>{cap(q.severity)}</Chip>
     </article>
@@ -237,8 +260,9 @@ export function FullGuide({ out, guide }: { out: any; guide: OnboardingGuide | n
           {s.coverage.length > 0 && (
             <ul className="fg-evidence">
               {s.coverage.map((c) => (
-                <li key={c.family}>
+                <li key={c.family} className={cn(isLocked("coverage", c, "gaps") && "is-locked")}>
                   <strong>{plain(c.family)}</strong> {c.evidence}
+                  {tools("coverage", c, "gaps")}
                 </li>
               ))}
             </ul>
@@ -248,7 +272,8 @@ export function FullGuide({ out, guide }: { out: any; guide: OnboardingGuide | n
             <>
               <h6>Tables</h6>
               <Grid
-                head={["Table", "Kind", "Rows", "Fields", "One row is", "Key"]}
+                head={cards ? ["Table", "Kind", "Rows", "Fields", "One row is", "Key", "Card"] : ["Table", "Kind", "Rows", "Fields", "One row is", "Key"]}
+                after={(i) => (cards && cards.editing === cardId("table", s.base[i]) ? tools("table", s.base[i], "guide") : null)}
                 rows={s.base.map((t) => [
                   <code key="t">{t.table}</code>,
                   cap(t.kind),
@@ -256,6 +281,7 @@ export function FullGuide({ out, guide }: { out: any; guide: OnboardingGuide | n
                   <span key="c" className="stage-mono">{profiles[t.table]?.columns.length ?? "–"}</span>,
                   t.grain.replace(/^(one( row)?( is| per)?\s+)/i, ""),
                   <code key="k">{(t.key_columns ?? []).join(", ") || "none found"}</code>,
+                  ...(cards ? [<CardBar key="card" id={cardId("table", t)} section="guide" ctx={cards} />] : []),
                 ])}
               />
             </>
@@ -435,6 +461,38 @@ export function FullGuide({ out, guide }: { out: any; guide: OnboardingGuide | n
         </section>
       )}
 
+      {open === "all" && (out.semantic_views ?? []).length > 0 && (
+        <section className="fg-area">
+          <header>
+            <div>
+              <h5>Customer semantic views</h5>
+              <p>Views the customer already keeps. They name the measures and say how tables join.</p>
+            </div>
+          </header>
+          <div className="fg-issues">
+            {(out.semantic_views as any[]).map((v) => (
+              <article key={v.view} className={cn("fg-issue", isLocked("view", v, "guide") && "is-locked")}>
+                <div>
+                  <strong>{v.view}</strong>
+                  <p>{v.purpose}</p>
+                  <p>
+                    <b>One row is:</b> {v.grain}
+                    {(v.caveats ?? []).length > 0 && (
+                      <>
+                        {" "}
+                        <b>Cannot answer:</b> {(v.caveats as string[]).join(" ")}
+                      </>
+                    )}
+                  </p>
+                  {tools("view", v, "guide")}
+                </div>
+                <Chip tone={v.use_for === "map_from_view" ? "positive" : "neutral"}>{cap(words(v.use_for))}</Chip>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
+
       {open === "all" && (out.questions ?? []).length > 0 && (
         <section className="fg-area">
           <header>
@@ -444,8 +502,14 @@ export function FullGuide({ out, guide }: { out: any; guide: OnboardingGuide | n
             </div>
           </header>
           <Grid
-            head={["Question", "Why it matters", "For"]}
-            rows={(out.questions as any[]).map((q) => [q.question, q.why, q.to === "team" ? "The team" : "The customer"])}
+            head={cards ? ["Question", "Why it matters", "For", "Card"] : ["Question", "Why it matters", "For"]}
+            after={(i) => (cards && cards.editing === cardId("question", (out.questions as any[])[i]) ? tools("question", (out.questions as any[])[i], "gaps") : null)}
+            rows={(out.questions as any[]).map((q) => [
+              q.question,
+              q.why,
+              q.to === "team" ? "The team" : "The customer",
+              ...(cards ? [<CardBar key="card" id={cardId("question", q)} section="gaps" ctx={cards} />] : []),
+            ])}
           />
         </section>
       )}
