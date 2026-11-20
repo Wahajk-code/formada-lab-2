@@ -63,15 +63,15 @@ function Fold({ title, note, children, open }: { title: string; note?: string; c
   );
 }
 
-function Grid({ head, rows, after }: { head: string[]; rows: React.ReactNode[][]; after?: (i: number) => React.ReactNode }) {
+function Grid({ head, rows, after, hover }: { head: string[]; rows: React.ReactNode[][]; after?: (i: number) => React.ReactNode; hover?: boolean }) {
   return (
     <div className="stage-table-scroll">
       <table className="stage-table">
         <thead>
           <tr>
-            {head.map((h) => (
-              <th key={h} scope="col">
-                {h}
+            {head.map((h, i) => (
+              <th key={h} scope="col" className={hover && i === head.length - 1 ? "card-cell" : undefined}>
+                {hover && i === head.length - 1 ? <span className="stage-visually-hidden">{h}</span> : h}
               </th>
             ))}
           </tr>
@@ -79,9 +79,11 @@ function Grid({ head, rows, after }: { head: string[]; rows: React.ReactNode[][]
         <tbody>
           {rows.map((r, i) => (
             <Fragment key={i}>
-              <tr>
+              <tr className={hover ? "card-hover" : undefined}>
                 {r.map((c, j) => (
-                  <td key={j}>{c}</td>
+                  <td key={j} className={hover && j === r.length - 1 ? "card-cell" : undefined}>
+                    {c}
+                  </td>
                 ))}
               </tr>
               {after?.(i) ? (
@@ -193,7 +195,7 @@ export function FullGuide({ out, guide, cards }: { out: any; guide: OnboardingGu
     Boolean(cards && (cards.sectionLocked.has(section) || cards.cardLocked.has(cardId(kind, item))));
 
   const issueRow = (q: any, i: number) => (
-    <article key={i} className={cn("fg-issue", isLocked("issue", q, "gaps") && "is-locked")}>
+    <article key={i} className={cn("fg-issue card-hover", isLocked("issue", q, "gaps") && "is-locked")}>
       <div>
         <strong>{q.title}</strong>
         <p>{q.evidence}</p>
@@ -260,7 +262,7 @@ export function FullGuide({ out, guide, cards }: { out: any; guide: OnboardingGu
           {s.coverage.length > 0 && (
             <ul className="fg-evidence">
               {s.coverage.map((c) => (
-                <li key={c.family} className={cn(isLocked("coverage", c, "gaps") && "is-locked")}>
+                <li key={c.family} className={cn("card-hover", isLocked("coverage", c, "gaps") && "is-locked")}>
                   <strong>{plain(c.family)}</strong> {c.evidence}
                   {tools("coverage", c, "gaps")}
                 </li>
@@ -272,7 +274,8 @@ export function FullGuide({ out, guide, cards }: { out: any; guide: OnboardingGu
             <>
               <h6>Tables</h6>
               <Grid
-                head={cards ? ["Table", "Kind", "Rows", "Fields", "One row is", "Key", "Card"] : ["Table", "Kind", "Rows", "Fields", "One row is", "Key"]}
+                head={cards ? ["Table", "Kind", "Rows", "Fields", "One row is", "Key", "Card tools"] : ["Table", "Kind", "Rows", "Fields", "One row is", "Key"]}
+                hover={Boolean(cards)}
                 after={(i) => (cards && cards.editing === cardId("table", s.base[i]) ? tools("table", s.base[i], "guide") : null)}
                 rows={s.base.map((t) => [
                   <code key="t">{t.table}</code>,
@@ -471,7 +474,7 @@ export function FullGuide({ out, guide, cards }: { out: any; guide: OnboardingGu
           </header>
           <div className="fg-issues">
             {(out.semantic_views as any[]).map((v) => (
-              <article key={v.view} className={cn("fg-issue", isLocked("view", v, "guide") && "is-locked")}>
+              <article key={v.view} className={cn("fg-issue card-hover", isLocked("view", v, "guide") && "is-locked")}>
                 <div>
                   <strong>{v.view}</strong>
                   <p>{v.purpose}</p>
@@ -502,7 +505,8 @@ export function FullGuide({ out, guide, cards }: { out: any; guide: OnboardingGu
             </div>
           </header>
           <Grid
-            head={cards ? ["Question", "Why it matters", "For", "Card"] : ["Question", "Why it matters", "For"]}
+            head={cards ? ["Question", "Why it matters", "For", "Card tools"] : ["Question", "Why it matters", "For"]}
+            hover={Boolean(cards)}
             after={(i) => (cards && cards.editing === cardId("question", (out.questions as any[])[i]) ? tools("question", (out.questions as any[])[i], "gaps") : null)}
             rows={(out.questions as any[]).map((q) => [
               q.question,

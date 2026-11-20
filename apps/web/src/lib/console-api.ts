@@ -892,6 +892,10 @@ export const consoleApi = {
     send<{ status: string; step_id: string; card_id: string; locked: boolean }>("POST", `/workspaces/${id}/onboarding/discovery/${stepId}/cards/edit`, { card_id: cardId, fields }),
   lockCard: (id: string, stepId: string, cardId: string, locked: boolean) =>
     send<{ status: string; step_id: string; locked: boolean }>("POST", `/workspaces/${id}/onboarding/discovery/${stepId}/cards/lock`, { card_id: cardId, locked }),
+  removeJoin: (id: string, stepId: string, cardId: string) =>
+    send<{ status: string; step_id: string }>("POST", `/workspaces/${id}/onboarding/discovery/${stepId}/cards/remove-join`, { card_id: cardId }),
+  addJoin: (id: string, stepId: string, table: string, column: string, referencesTable: string, referencesColumn: string) =>
+    send<{ status: string; step_id: string; card_id: string }>("POST", `/workspaces/${id}/onboarding/discovery/${stepId}/cards/add-join`, { table, column, references_table: referencesTable, references_column: referencesColumn }),
   suggestCards: (id: string, stepId: string, cardIds: string[], instruction: string) =>
     send<CardSuggestion>("POST", `/workspaces/${id}/onboarding/discovery/${stepId}/cards/suggest`, { card_ids: cardIds, instruction }),
   applyCards: (id: string, stepId: string, changes: { card_id: string; field: string; value: unknown }[], note: string, confirmLarge: boolean) =>

@@ -5,17 +5,19 @@ import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 
 import {
+  addDiscoveryJoin,
   applyCardChanges,
   askClient,
   askWorkspaceAI,
   editDiscoveryCard,
   lockDiscoveryCard,
   lockDiscoverySection,
+  removeDiscoveryJoin,
   reviseDiscoverySection,
   suggestCardChanges,
 } from "@/app/console-actions";
-import { ChangeReview, type CardCtx } from "@/components/console/onboarding/card-tools";
-import { cardList, type CardSuggestion } from "@/lib/discovery-cards";
+import { AddJoin, CardBar, CardEditor, ChangeReview, type CardCtx } from "@/components/console/onboarding/card-tools";
+import { cardId, cardList, type CardSuggestion } from "@/lib/discovery-cards";
 import { EngineerChat } from "@/components/console/onboarding/engineer-chat";
 import { cn } from "@/lib/utils";
 import { FullGuide } from "@/components/console/onboarding/full-guide";
@@ -305,15 +307,26 @@ export function DiscoveryStage({
     cardLocked: new Set<string>(out.locked_cards ?? []),
     sectionLocked: new Set<string>(lockedSections),
     mentioned: new Set(mentions),
-    busy: false,
+    busy,
     editing,
     setEditing,
+    tables: (out.tables as any[]).map((t) => t.table),
     onLock: (id, lock) => {
       void lockDiscoveryCard(workspaceId, stepId, id, lock).then((res) => {
         if (res.ok) router.refresh();
       });
     },
     onMention: mention,
+    onRemove: async (id) => {
+      const res = await removeDiscoveryJoin(workspaceId, stepId, id);
+      if (res.ok) router.refresh();
+      return res.ok ? null : res.error;
+    },
+    onAddJoin: async (table, column, refTable, refColumn) => {
+      const res = await addDiscoveryJoin(workspaceId, stepId, table, column, refTable, refColumn);
+      if (res.ok) router.refresh();
+      return res.ok ? null : res.error;
+    },
     onSave: async (id, fields) => {
       const res = await editDiscoveryCard(workspaceId, stepId, id, fields);
       if (res.ok) router.refresh();
@@ -346,7 +359,9 @@ export function DiscoveryStage({
   const totals = sum(tables);
   const breakdown = schemas.map((schema) => ({ schema, ...sum(tables.filter((t) => t.schema === schema)) }));
   const value = (d: Dimension, n: number) => (d === "rows" ? compact.format(n) : integer.format(n));
-  const joins = tables.flatMap((t) => t.joins.map((j) => ({ from: `${short(t.table)}.${j.column}`, to: `${short(j.references_table)}.${j.references_column}`, confidence: j.confidence })));
+  const joinCards = (out.tables as any[]).flatMap((t) =>
+    (t.joins ?? []).map((item: any) => ({ id: cardId("join", item, t.table), owner: t.table as string, item })),
+  );
   const gaps = (out.coverage as any[]).filter((c) => c.status !== "present");
   const issues = [...(out.quality_issues as any[])].sort((a, b) => "hml".indexOf(a.severity[0]) - "hml".indexOf(b.severity[0]));
   const visible = tables.filter(
@@ -484,25 +499,36 @@ export function DiscoveryStage({
           )}
         </div>
 
-        {section === "guide" && <FullGuide out={out} guide={guide} cards={{ ...cards, busy }} />}
+        {section === "guide" && <FullGuide out={out} guide={guide} cards={cards} />}
 
         {section === "relationships" && (
           <div className="discovery-relationships">
             <SchemaDiagram tables={tables} />
-            {joins.length ? (
-              joins.map((j, i) => (
-                <article key={i} className="discovery-review-item">
-                  <div className="discovery-join">
-                    <code>{j.from}</code>
-                    <Icon name="arrow-right" size={15} />
-                    <code>{j.to}</code>
-                  </div>
-                  <p>{cap(j.confidence)} confidence</p>
-                </article>
-              ))
+            {joinCards.length ? (
+              <ul className="join-list">
+                {joinCards.map(({ id, owner, item }) => (
+                  <li key={id} className={cn("discovery-review-item card-hover", (cards.sectionLocked.has("relationships") || cards.cardLocked.has(id)) && "is-locked")}>
+                    <div className="join-card-body">
+                      <div className="discovery-join">
+                        <code>
+                          {short(owner)}.{item.column}
+                        </code>
+                        <Icon name="arrow-right" size={15} />
+                        <code>
+                          {short(item.references_table)}.{item.references_column}
+                        </code>
+                      </div>
+                      <Badge kind={item.confidence === "high" ? "positive" : item.confidence === "low" ? "attention" : "neutral"}>{cap(item.confidence)} confidence</Badge>
+                    </div>
+                    <CardBar id={id} section="relationships" ctx={cards} join />
+                    {editing === id && <CardEditor key={id} id={id} kind="join" item={item} ctx={cards} />}
+                  </li>
+                ))}
+              </ul>
             ) : (
               <p className="stage-helper">No relationships were found between these tables.</p>
             )}
+            <AddJoin ctx={cards} disabled={busy || cards.sectionLocked.has("relationships")} />
           </div>
         )}
 

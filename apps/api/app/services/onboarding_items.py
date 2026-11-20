@@ -648,7 +648,10 @@ async def edit_card(
     changes = [{"card_id": cid, "field": f, "value": v} for f, v in fields.items()]
     if not changes:
         raise Invalid("nothing to change")
-    data, applied, refused = dc.apply_changes(base.output or {}, changes, lock=True)
+    profile = (base.input or {}).get("profile", {})
+    data, applied, refused = dc.apply_changes(
+        base.output or {}, changes, lock=True, profile=profile
+    )
     if refused:
         raise Invalid("; ".join(f"{r['field']}: {r['reason']}" for r in refused))
     if not applied:
@@ -713,10 +716,16 @@ async def card_context(tenant_id: uuid.UUID, ids: list[str]) -> list[dict[str, A
         if cid not in cards:
             continue
         kind, item = cards[cid]
-        entry: dict[str, Any] = {"card": cid, **dc.view(kind, item)}
+        owner = dc.owner_of(out, cid)
+        entry: dict[str, Any] = {"card": cid, **dc.view(kind, item, owner)}
         entry["locked"] = dc.is_locked(out, cid) is not None
         if kind == "table":
             entry["profile"] = _profile_slice(profile, str(item.get("table", "")))
+        if kind == "join":
+            entry["from_table_columns"] = _profile_slice(profile, owner)
+            entry["to_table_columns"] = _profile_slice(
+                profile, str(item.get("references_table", ""))
+            )
         found.append(entry)
     return found
 
@@ -756,10 +765,16 @@ async def suggest_card_changes(
 
     def entry(cid: str) -> dict[str, Any]:
         kind, item = cards[cid]
+        owner = dc.owner_of(out, cid)
         extra: dict[str, Any] = {}
         if kind == "table":
             extra = {"profile": _profile_slice(profile, str(item.get("table", "")))}
-        return {"card_id": cid, **dc.view(kind, item), **extra}
+        if kind == "join":
+            extra = {
+                "from_table_columns": _profile_slice(profile, owner),
+                "to_table_columns": _profile_slice(profile, str(item.get("references_table", ""))),
+            }
+        return {"card_id": cid, **dc.view(kind, item, owner), **extra}
 
     user = json.dumps(
         {
@@ -794,7 +809,7 @@ async def suggest_card_changes(
         raise Conflict(f"the AI could not suggest changes: {result.error or 'no answer'}")
     proposed = [c.model_dump() for c in result.parsed.changes][:40]
     allowed, refused = dc.filter_ai_changes(out, editable, proposed)
-    _, applied, more = dc.apply_changes(out, allowed, lock=False)
+    _, applied, more = dc.apply_changes(out, allowed, lock=False, profile=profile)
     return {
         "changes": applied,
         "refused": refused + more,
@@ -816,7 +831,10 @@ async def apply_card_changes(
     if len(changes) > 40:
         raise Invalid("too many changes at once")
     base = await _cards_base(tenant_id, step_id)
-    data, applied, refused = dc.apply_changes(base.output or {}, changes, lock=False)
+    profile = (base.input or {}).get("profile", {})
+    data, applied, refused = dc.apply_changes(
+        base.output or {}, changes, lock=False, profile=profile
+    )
     if refused and not applied:
         raise Invalid("; ".join(f"{r['field']}: {r['reason']}" for r in refused))
     if not applied:
@@ -829,3 +847,40 @@ async def apply_card_changes(
     note_text = f"{len(applied)} card changes by AI: {said}"
     saved = await _save_cards(actor, tenant_id, base, data, note_text, ids)
     return {**saved, "applied": applied, "refused": refused}
+
+
+async def remove_join_card(
+    actor: str, tenant_id: uuid.UUID, step_id: uuid.UUID, cid: str
+) -> dict[str, Any]:
+    """Take one relationship out of the guide. A rerun does not bring it back."""
+    base = await _cards_base(tenant_id, step_id)
+    try:
+        data = dc.remove_join(base.output or {}, cid)
+    except ValueError as exc:
+        raise Invalid(str(exc)) from exc
+    _check_shape(data)
+    saved = await _save_cards(actor, tenant_id, base, data, f"relationship removed: {cid}", [cid])
+    return {**saved, "card_id": cid}
+
+
+async def add_join_card(
+    actor: str,
+    tenant_id: uuid.UUID,
+    step_id: uuid.UUID,
+    table: str,
+    column: str,
+    references_table: str,
+    references_column: str,
+) -> dict[str, Any]:
+    """Declare a relationship the scan missed. It is locked, so a rerun keeps it."""
+    base = await _cards_base(tenant_id, step_id)
+    profile = (base.input or {}).get("profile", {})
+    try:
+        data, cid = dc.add_join(
+            base.output or {}, table, column, references_table, references_column, profile
+        )
+    except ValueError as exc:
+        raise Invalid(str(exc)) from exc
+    _check_shape(data)
+    saved = await _save_cards(actor, tenant_id, base, data, f"relationship added: {cid}", [cid])
+    return {**saved, "card_id": cid, "locked": True}

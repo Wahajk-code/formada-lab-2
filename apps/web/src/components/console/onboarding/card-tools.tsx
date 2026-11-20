@@ -4,7 +4,16 @@
 import { useState } from "react";
 
 import { Icon } from "@/components/ui/icon";
-import { CARD_FIELDS, ENUMS, FIELD_LABEL, LIST_FIELDS, type CardChangeView, type CardKind, type CardSuggestion } from "@/lib/discovery-cards";
+import {
+  CARD_FIELDS,
+  ENUMS,
+  FIELD_LABEL,
+  LIST_FIELDS,
+  type CardChangeView,
+  type CardKind,
+  type CardSection,
+  type CardSuggestion,
+} from "@/lib/discovery-cards";
 import { cn } from "@/lib/utils";
 
 /** Everything a card needs to be edited, locked and named in the chat. Owned by the stage. */
@@ -18,42 +27,60 @@ export type CardCtx = {
   busy: boolean;
   editing: string | null;
   setEditing: (id: string | null) => void;
+  /** The tables of the scan, for choosing the far end of a relationship. */
+  tables: string[];
   onLock: (id: string, lock: boolean) => void;
   onMention: (id: string) => void;
   /** Returns an error message, or null when saved. */
   onSave: (id: string, fields: Record<string, unknown>) => Promise<string | null>;
+  /** Relationships only. Both return an error message, or null when done. */
+  onRemove: (id: string) => Promise<string | null>;
+  onAddJoin: (table: string, column: string, refTable: string, refColumn: string) => Promise<string | null>;
 };
 
 const show = (v: unknown) => (Array.isArray(v) ? v.join(", ") : String(v ?? ""));
 
-/** The three things you can do to a card. A locked card shows a clear badge and cannot be edited. */
-export function CardBar({ id, section, ctx }: { id: string; section: "guide" | "gaps"; ctx: CardCtx }) {
+/** The card's state and tools. The lock chip is always visible; the tools fade in when the row or
+ * card is hovered (or focused), floating outside the content. The parent needs `card-hover`. */
+export function CardBar({ id, section, ctx, join = false }: { id: string; section: CardSection; ctx: CardCtx; join?: boolean }) {
   const bySection = ctx.sectionLocked.has(section);
   const locked = bySection || ctx.cardLocked.has(id);
   const asked = ctx.mentioned.has(id);
   return (
-    <div className={cn("card-bar", locked && "is-locked")}>
+    <>
       {locked && (
-        <span className="card-lock-badge" title={bySection ? "The whole section is locked" : "This card is locked"}>
-          <Icon name="lock" size={13} /> {bySection ? "Locked with section" : "Locked"}
+        <span className="card-lock-chip" title={bySection ? "The whole section is locked" : "This card is locked"}>
+          <Icon name="lock" size={12} /> {bySection ? "Locked with section" : "Locked"}
         </span>
       )}
-      {ctx.can && (
-        <>
+      <div className={cn("card-bar card-float", ctx.editing === id && "is-pinned")} role="toolbar" aria-label="Card tools">
+        {ctx.can && (
           <button type="button" disabled={locked || ctx.busy} onClick={() => ctx.setEditing(ctx.editing === id ? null : id)}>
             <Icon name="edit" size={14} /> Edit
           </button>
-          {!bySection && (
-            <button type="button" className={cn("card-lock-toggle", locked && "on")} disabled={ctx.busy} onClick={() => ctx.onLock(id, !locked)}>
-              <Icon name={locked ? "unlock" : "lock"} size={14} /> {locked ? "Unlock" : "Lock"}
-            </button>
-          )}
-        </>
-      )}
-      <button type="button" disabled={asked} onClick={() => ctx.onMention(id)} title="Add this card to the chat as context">
-        <span aria-hidden="true">@</span> {asked ? "In chat" : "Add to chat"}
-      </button>
-    </div>
+        )}
+        {ctx.can && !bySection && (
+          <button type="button" className={cn("card-lock-toggle", locked && "on")} disabled={ctx.busy} onClick={() => ctx.onLock(id, !locked)}>
+            <Icon name={locked ? "unlock" : "lock"} size={14} /> {locked ? "Unlock" : "Lock"}
+          </button>
+        )}
+        {ctx.can && join && (
+          <button type="button" className="card-remove" disabled={locked || ctx.busy} onClick={() => void ctx.onRemove(id)} title="Remove this relationship">
+            <Icon name="trash" size={14} /> Remove
+          </button>
+        )}
+        <button
+          type="button"
+          className={cn("card-at", asked && "on")}
+          disabled={asked}
+          onClick={() => ctx.onMention(id)}
+          aria-label={asked ? "In the chat" : "Add to chat"}
+          title={asked ? "In the chat" : "Add to chat as context"}
+        >
+          @
+        </button>
+      </div>
+    </>
   );
 }
 
@@ -73,20 +100,25 @@ export function CardEditor({ id, kind, item, ctx }: { id: string; kind: CardKind
     if (err) setError(err);
     else ctx.setEditing(null);
   };
+  const choices = (f: string): string[] | null =>
+    ENUMS[f] ?? (f === "references_table" && ctx.tables.length ? ctx.tables : null);
   return (
     <div className="card-editor stage-form">
       <div className="card-editor-fields">
         {fields.map((f) => (
           <label key={f}>
             {FIELD_LABEL[f] ?? f}
-            {ENUMS[f] ? (
+            {choices(f) ? (
               <select value={values[f]} onChange={(e) => setValues({ ...values, [f]: e.target.value })}>
-                {ENUMS[f].map((o) => (
+                {!choices(f)!.includes(values[f]) && <option value={values[f]}>{values[f]}</option>}
+                {choices(f)!.map((o) => (
                   <option key={o} value={o}>
                     {o}
                   </option>
                 ))}
               </select>
+            ) : kind === "join" ? (
+              <input value={values[f]} maxLength={200} onChange={(e) => setValues({ ...values, [f]: e.target.value })} />
             ) : (
               <textarea rows={f === "purpose" || f === "evidence" || f === "impact" || f === "suggested_handling" ? 3 : 2} value={values[f]} maxLength={2000} onChange={(e) => setValues({ ...values, [f]: e.target.value })} />
             )}
@@ -111,6 +143,80 @@ export function CardEditor({ id, kind, item, ctx }: { id: string; kind: CardKind
   );
 }
 
+/** Declare a relationship the scan missed. It is locked, so a rerun keeps it. */
+export function AddJoin({ ctx, disabled }: { ctx: CardCtx; disabled: boolean }) {
+  const [open, setOpen] = useState(false);
+  const [v, setV] = useState({ table: "", column: "", refTable: "", refColumn: "" });
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  if (!ctx.can) return null;
+  if (!open)
+    return (
+      <button type="button" className="btn btn-secondary add-join-open" disabled={disabled} onClick={() => setOpen(true)}>
+        <Icon name="plus" size={15} /> <span>Add a relationship</span>
+      </button>
+    );
+  const ready = v.table && v.column.trim() && v.refTable && v.refColumn.trim();
+  const submit = async () => {
+    setSaving(true);
+    setError(null);
+    const err = await ctx.onAddJoin(v.table, v.column.trim(), v.refTable, v.refColumn.trim());
+    setSaving(false);
+    if (err) setError(err);
+    else {
+      setOpen(false);
+      setV({ table: "", column: "", refTable: "", refColumn: "" });
+    }
+  };
+  const tableSelect = (key: "table" | "refTable") => (
+    <select value={v[key]} onChange={(e) => setV({ ...v, [key]: e.target.value })}>
+      <option value="">Choose a table</option>
+      {ctx.tables.map((t) => (
+        <option key={t} value={t}>
+          {t}
+        </option>
+      ))}
+    </select>
+  );
+  return (
+    <div className="card-editor stage-form">
+      <strong>Add a relationship</strong>
+      <div className="stage-fields">
+        <label>
+          From table
+          {tableSelect("table")}
+        </label>
+        <label>
+          Field
+          <input value={v.column} maxLength={200} onChange={(e) => setV({ ...v, column: e.target.value })} />
+        </label>
+        <label>
+          To table
+          {tableSelect("refTable")}
+        </label>
+        <label>
+          Field
+          <input value={v.refColumn} maxLength={200} onChange={(e) => setV({ ...v, refColumn: e.target.value })} />
+        </label>
+      </div>
+      {error && (
+        <p className="stage-helper" role="alert">
+          {error}
+        </p>
+      )}
+      <div className="stage-form-footer">
+        <button type="button" className="btn btn-primary" disabled={!ready || saving} onClick={submit}>
+          <Icon name="lock" size={15} /> <span>{saving ? "Adding…" : "Add and lock"}</span>
+        </button>
+        <button type="button" className="btn btn-secondary" disabled={saving} onClick={() => setOpen(false)}>
+          Cancel
+        </button>
+        <span className="stage-helper">The field names are checked against the scan.</span>
+      </div>
+    </div>
+  );
+}
+
 /** What the chat wants to change, as before and after, for the team to approve. */
 export function ChangeReview({
   suggestion,
@@ -130,9 +236,7 @@ export function ChangeReview({
   const needsConfirm = suggestion.large || picked.length > 6;
   return (
     <div className="change-review" role="group" aria-label="Suggested changes">
-      <strong>
-        {suggestion.changes.length ? `Suggested changes (${suggestion.changes.length})` : "No changes suggested"}
-      </strong>
+      <strong>{suggestion.changes.length ? `Suggested changes (${suggestion.changes.length})` : "No changes suggested"}</strong>
       {suggestion.note && <p>{suggestion.note}</p>}
       <ul>
         {suggestion.changes.map((c) => (
@@ -165,9 +269,7 @@ export function ChangeReview({
         </p>
       )}
       {suggestion.refused.length > 0 && (
-        <p className="stage-helper">
-          Left out: {suggestion.refused.map((r) => `${r.card_id.split(":").slice(1).join(":")} (${r.reason})`).join("; ")}.
-        </p>
+        <p className="stage-helper">Left out: {suggestion.refused.map((r) => `${r.card_id.split(":").slice(1).join(":")} (${r.reason})`).join("; ")}.</p>
       )}
       {needsConfirm && picked.length > 0 && (
         <label className="change-confirm">
@@ -176,12 +278,7 @@ export function ChangeReview({
         </label>
       )}
       <div className="stage-form-footer">
-        <button
-          type="button"
-          className="btn btn-primary"
-          disabled={applying || !picked.length || (needsConfirm && !confirm)}
-          onClick={() => onApply(picked, needsConfirm && confirm)}
-        >
+        <button type="button" className="btn btn-primary" disabled={applying || !picked.length || (needsConfirm && !confirm)} onClick={() => onApply(picked, needsConfirm && confirm)}>
           <Icon name="check" size={15} /> <span>{applying ? "Applying…" : `Apply ${picked.length} ${picked.length === 1 ? "change" : "changes"}`}</span>
         </button>
         <button type="button" className="btn btn-secondary" disabled={applying} onClick={onDiscard}>

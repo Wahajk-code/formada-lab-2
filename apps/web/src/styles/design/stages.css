@@ -435,17 +435,36 @@
 .schema-table li code { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .discovery-join code { overflow-wrap: anywhere; }
 
-/* Discovery cards: edit, lock, mention in the chat */
-.card-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
-.card-bar button { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border: 1px solid var(--fd-border); border-radius: 999px; background: var(--fd-white); color: var(--ink); font-size: 12px; font-weight: 600; cursor: pointer; }
-.card-bar button:hover:not(:disabled) { background: var(--fd-surface); }
-.card-bar button:disabled { opacity: .5; cursor: not-allowed; }
-.card-bar .card-lock-toggle.on { border-color: #bfe6d6; background: #eef9f4; color: #215f52; }
-.card-lock-badge { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border-radius: 999px; background: #eef9f4; border: 1px solid #bfe6d6; color: #215f52; font-size: 12px; font-weight: 700; }
+/* Discovery cards: tools float outside the content and fade in on hover or focus; the lock chip stays */
+.card-hover { position: relative; transition: background-color .15s ease; }
+.card-hover:hover, .card-hover:focus-within { background-color: #f5f2fc; }
+.card-float { position: absolute; z-index: 5; display: flex; flex-wrap: nowrap; align-items: center; gap: 4px; padding: 4px; border: 1px solid var(--fd-border); border-radius: 999px; background: var(--fd-white); box-shadow: 0 6px 18px #24193822; opacity: 0; pointer-events: none; transform: translateY(3px); transition: opacity .15s ease, transform .15s ease; }
+.card-hover:hover > .card-float, .card-hover:focus-within > .card-float, .card-hover:hover .card-float, .card-hover:focus-within .card-float, .card-float.is-pinned { opacity: 1; pointer-events: auto; transform: none; }
+.card-float button { display: inline-flex; align-items: center; gap: 5px; flex: none; padding: 5px 11px; border: 0; border-radius: 999px; background: transparent; color: var(--ink); font-size: 12px; font-weight: 600; white-space: nowrap; cursor: pointer; }
+.card-float button:hover:not(:disabled) { background: var(--soft-violet); }
+.card-float button:disabled { opacity: .45; cursor: not-allowed; }
+.card-float .card-lock-toggle.on { background: #eef9f4; color: #215f52; }
+.card-float .card-remove:hover:not(:disabled) { background: #fdeeee; color: #a12626; }
+.card-float .card-at { justify-content: center; min-width: 30px; height: 28px; padding: 0 8px; font-size: 15px; font-weight: 700; color: #5534a6; }
+.card-float .card-at.on { background: var(--soft-violet); }
+article.card-hover > .card-float, li.card-hover > .card-float { top: -14px; right: 12px; }
+td.card-cell { position: relative; width: 1%; padding-right: 0; }
+td.card-cell > .card-float { top: 50%; right: 6px; transform: translateY(calc(-50% + 3px)); }
+tr.card-hover:hover td.card-cell > .card-float, tr.card-hover:focus-within td.card-cell > .card-float, td.card-cell > .card-float.is-pinned { transform: translateY(-50%); }
+th.card-cell { width: 1%; }
+.card-lock-chip { display: inline-flex; align-items: center; gap: 5px; margin-top: 6px; padding: 3px 9px; border-radius: 999px; background: #eef9f4; border: 1px solid #bfe6d6; color: #215f52; font-size: 12px; font-weight: 700; white-space: nowrap; }
+td .card-lock-chip { margin: 0; }
 .is-locked { box-shadow: inset 3px 0 0 #2f9583; }
-.stage-table td .card-bar { margin-top: 0; flex-wrap: nowrap; }
 .fg-after > td { padding: 0 !important; background: var(--fd-surface); }
 .fg-evidence li.is-locked { padding-left: 10px; }
+.join-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.join-list > li { padding: 12px 14px; border-radius: 12px; }
+.join-card-body { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; justify-content: space-between; }
+.add-join-open { justify-self: start; margin-top: 8px; }
+@media (hover: none) {
+  .card-float { position: static; opacity: 1; pointer-events: auto; transform: none; margin-top: 8px; box-shadow: none; width: fit-content; }
+  td.card-cell > .card-float { transform: none; }
+}
 .card-editor { display: grid; gap: 10px; margin-top: 10px; padding: 14px; border: 1px solid var(--fd-border); border-radius: 14px; background: var(--fd-white); }
 .card-editor-fields { display: grid; gap: 10px; }
 

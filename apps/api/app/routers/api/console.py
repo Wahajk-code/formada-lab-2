@@ -509,6 +509,17 @@ class CardSuggestIn(BaseModel):
     instruction: str = Field(max_length=2000)
 
 
+class JoinRemoveIn(BaseModel):
+    card_id: str = Field(max_length=400)
+
+
+class JoinAddIn(BaseModel):
+    table: str = Field(max_length=200)
+    column: str = Field(max_length=200)
+    references_table: str = Field(max_length=200)
+    references_column: str = Field(max_length=200)
+
+
 class CardApplyIn(BaseModel):
     changes: list[dict[str, Any]] = Field(max_length=40)
     note: str = Field(default="", max_length=2000)
@@ -531,6 +542,30 @@ async def onboarding_lock_card(
 ) -> dict[str, Any]:
     return await onboarding_items.set_card_lock(
         staff.actor, tenant_id, step_id, body.card_id, body.locked
+    )
+
+
+@router.post("/workspaces/{tenant_id}/onboarding/discovery/{step_id}/cards/remove-join")
+async def onboarding_remove_join(
+    tenant_id: uuid.UUID, step_id: uuid.UUID, body: JoinRemoveIn, staff: ConfigWriter
+) -> dict[str, Any]:
+    """Take one relationship out of the guide; a rerun does not bring it back."""
+    return await onboarding_items.remove_join_card(staff.actor, tenant_id, step_id, body.card_id)
+
+
+@router.post("/workspaces/{tenant_id}/onboarding/discovery/{step_id}/cards/add-join")
+async def onboarding_add_join(
+    tenant_id: uuid.UUID, step_id: uuid.UUID, body: JoinAddIn, staff: ConfigWriter
+) -> dict[str, Any]:
+    """Declare a relationship the scan missed; it is locked so a rerun keeps it."""
+    return await onboarding_items.add_join_card(
+        staff.actor,
+        tenant_id,
+        step_id,
+        body.table,
+        body.column,
+        body.references_table,
+        body.references_column,
     )
 
 

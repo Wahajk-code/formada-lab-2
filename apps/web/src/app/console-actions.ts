@@ -316,6 +316,14 @@ export async function lockDiscoveryCard(id: string, stepId: string, cardId: stri
   return attempt(() => consoleApi.lockCard(id, stepId, cardId, locked), ob(id));
 }
 
+export async function removeDiscoveryJoin(id: string, stepId: string, cardId: string) {
+  return attempt(() => consoleApi.removeJoin(id, stepId, cardId), ob(id));
+}
+
+export async function addDiscoveryJoin(id: string, stepId: string, table: string, column: string, referencesTable: string, referencesColumn: string) {
+  return attempt(() => consoleApi.addJoin(id, stepId, table, column, referencesTable, referencesColumn), ob(id));
+}
+
 export async function suggestCardChanges(id: string, stepId: string, cardIds: string[], instruction: string) {
   return attempt(() => consoleApi.suggestCards(id, stepId, cardIds, instruction), []);
 }
