@@ -64,8 +64,9 @@ from app.services.agents import _choice
 log = get_logger(__name__)
 AGENT_TIMEOUT_S = 600
 PROFILE_CAP = 5000
-STALE_RUNNING = timedelta(minutes=20)
-_tasks: set[asyncio.Task[Any]] = set()  # keep references so running steps are not collected
+STALE_RUNNING = timedelta(minutes=12)
+_running: dict[uuid.UUID, asyncio.Task[Any]] = {}  # live background steps, by step id
+ORPHAN_GRACE = timedelta(seconds=90)
 
 # Each step's proposal is a list of items; the team can edit or lock one item at a time.
 # step -> (list field in the output, key field of an item)
@@ -369,14 +370,28 @@ async def state(tenant_id: uuid.UUID) -> dict[str, Any]:
         tenant = await s.get(Tenant, tenant_id)
         if tenant is None:
             raise NotFound("workspace")
+        now = datetime.now(UTC)
+        stopped = "The step stopped before it finished (the server restarted). Run it again."
         await s.execute(
             update(OnboardingStep)
             .where(
                 OnboardingStep.status == "running",
-                OnboardingStep.created_at < datetime.now(UTC) - STALE_RUNNING,
+                OnboardingStep.created_at < now - STALE_RUNNING,
             )
-            .values(status="failed", error="the step stopped before finishing (API restart?)")
+            .values(status="failed", error=ob.failure_text(stopped))
         )
+        if lab():
+            # One API process runs every step, so a "running" step with no live task is orphaned
+            # (the free host restarted or slept): fail it now instead of showing a spinner.
+            await s.execute(
+                update(OnboardingStep)
+                .where(
+                    OnboardingStep.status == "running",
+                    OnboardingStep.created_at < now - ORPHAN_GRACE,
+                    OnboardingStep.id.not_in(list(_running)),
+                )
+                .values(status="failed", error=ob.failure_text(stopped))
+            )
         wc = await s.scalar(select(WarehouseConnection))
         rows = (
             await s.scalars(select(OnboardingStep).order_by(OnboardingStep.created_at.desc()))
@@ -540,13 +555,31 @@ async def _start(
                 await s.execute(
                     update(OnboardingStep)
                     .where(OnboardingStep.id == step_id)
-                    .values(status="failed", error=str(exc)[:2000])
+                    .values(status="failed", error=ob.failure_text(str(exc)))
                 )
 
     task = asyncio.create_task(run())
-    _tasks.add(task)
-    task.add_done_callback(_tasks.discard)
+    _running[step_id] = task
+    task.add_done_callback(lambda _t: _running.pop(step_id, None))
     return {"status": "started", "step_id": str(step_id)}
+
+
+async def cancel_step(actor: str, tenant_id: uuid.UUID, step: str) -> dict[str, Any]:
+    """Stop a step that is running (or looks stuck) so it can be started again."""
+    async with tenant_tx("service", tenant_id) as s:
+        rows = (
+            await s.scalars(
+                select(OnboardingStep).where(
+                    OnboardingStep.step == step, OnboardingStep.status == "running"
+                )
+            )
+        ).all()
+        for r in rows:
+            task = _running.get(r.id)
+            if task is not None:
+                task.cancel()
+            r.status, r.error = "failed", f"Stopped by {actor}. Run this step again."
+    return {"status": "ok", "stopped": len(rows)}
 
 
 async def _latest_output(tenant_id: uuid.UUID, step: str) -> dict[str, Any]:
@@ -654,7 +687,7 @@ async def _ask(
             "fixed_by_team": len(fixed),
         }
         if result.parsed is None:
-            row.status, row.error = "failed", result.error or "no answer"
+            row.status, row.error = "failed", ob.failure_text(result.error or "no answer")
             row.output = {"raw": result.raw[:20000]} if result.raw else None
     log.info(
         "onboarding.agent",

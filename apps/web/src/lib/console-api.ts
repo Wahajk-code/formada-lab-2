@@ -916,6 +916,8 @@ export const consoleApi = {
       `/workspaces/${id}/onboarding/connection/mock`,
       {},
     ),
+  cancelStep: (id: string, step: string) =>
+    send<{ status: string; stopped: number }>("POST", `/workspaces/${id}/onboarding/${step}/cancel`, {}),
   selectSnapshot: (id: string, snapshotId: string) =>
     send<{ status: string; selected: string }>("POST", `/workspaces/${id}/onboarding/snapshot`, {
       snapshot_id: snapshotId,

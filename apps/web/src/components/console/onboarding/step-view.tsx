@@ -7,6 +7,7 @@ import {
   LoaderCircle,
   Send,
   Sparkles,
+  TriangleAlert,
   Undo2,
 } from "lucide-react";
 import Link from "next/link";
@@ -15,6 +16,7 @@ import { useEffect, useState, useTransition } from "react";
 
 import {
   approveConnect,
+  cancelOnboardingStep,
   approveOnboardingStep,
   approveTrial,
   askClient,
@@ -53,7 +55,7 @@ import { STEP_META } from "@/components/console/onboarding/meta";
 import { Icon } from "@/components/ui/icon";
 import { Button } from "@/components/ui/button";
 import type { ThreadStep } from "@/lib/client-api";
-import type { OnboardingGuide, OnboardingState, OnboardingStepName } from "@/lib/console-api";
+import type { OnboardingGuide, OnboardingState, OnboardingStep, OnboardingStepName } from "@/lib/console-api";
 import { cn } from "@/lib/utils";
 
 const FIELD =
@@ -604,6 +606,64 @@ function AgentActions({
   );
 }
 
+/** What the team sees while an AI step runs or after it fails: plain words, a way to stop it, and
+ * the technical details tucked away. A step never shows an endless spinner. */
+function StepStatus({ step, workspaceId, can, stepName }: { step: OnboardingStep; workspaceId: string; can: boolean; stepName: string }) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const [now, setNow] = useState(() => Date.now());
+  const running = step.status === "running";
+  useEffect(() => {
+    if (!running) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [running]);
+  const stop = () =>
+    start(async () => {
+      await cancelOnboardingStep(workspaceId, stepName);
+      router.refresh();
+    });
+
+  if (running) {
+    const secs = Math.max(0, Math.round((now - new Date(step.created_at).getTime()) / 1000));
+    const slow = secs > 180;
+    return (
+      <div className={cn("step-status", slow && "slow")} role="status" aria-live="polite">
+        <LoaderCircle className="size-4 animate-spin" />
+        <div>
+          <strong>{slow ? "This is taking longer than usual" : "The AI is working"}</strong>
+          <p>
+            {Math.floor(secs / 60)}:{String(secs % 60).padStart(2, "0")} elapsed.{" "}
+            {slow ? "You can stop it and run it again." : "This page updates by itself. Most steps take one to three minutes."}
+          </p>
+        </div>
+        {can && (
+          <button type="button" className="btn btn-secondary" disabled={pending} onClick={stop}>
+            Stop this step
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  const [reason, details] = (step.error ?? "The step failed.").split(" (Details: ");
+  return (
+    <div className="step-status failed" role="alert">
+      <TriangleAlert className="size-4" />
+      <div>
+        <strong>This step did not finish</strong>
+        <p>{reason}</p>
+        {details && (
+          <details>
+            <summary>Technical details</summary>
+            <code>{details.replace(/\)$/, "")}</code>
+          </details>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------------------------
 // One step
 // ---------------------------------------------------------------------------------------------
@@ -684,16 +744,8 @@ export function StepView({
             />
           )}
           {stepKey === "org" && <OrgVerdict state={state} can={can} />}
-          {agent && step?.status === "running" && (
-            <p className="flex items-center gap-2 text-sm text-muted-foreground">
-              <LoaderCircle className="size-4 animate-spin" /> The analysis is
-              running. This page updates by itself.
-            </p>
-          )}
-          {agent && step?.status === "failed" && (
-            <p className="rounded-lg bg-brand px-3 py-2 text-xs text-brand-foreground">
-              {step.error}
-            </p>
+          {agent && step && (step.status === "running" || step.status === "failed") && (
+            <StepStatus step={step} workspaceId={state.workspace.id} can={can} stepName={stepKey} />
           )}
           {ready && <DetailsHeading />}
           {ready && step!.status === "proposed" && editable && stepKey !== "mapping" && (

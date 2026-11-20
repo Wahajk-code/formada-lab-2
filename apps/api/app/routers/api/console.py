@@ -715,6 +715,14 @@ async def go_live(tenant_id: uuid.UUID, body: GoLiveIn, staff: ConfigWriter) -> 
     return await onboarding_collab.go_live(staff.actor, tenant_id, body.invite)
 
 
+@router.post("/workspaces/{tenant_id}/onboarding/{step}/cancel")
+async def onboarding_cancel(
+    tenant_id: uuid.UUID, step: OnboardingStepName, staff: ConfigWriter
+) -> dict[str, Any]:
+    """Stop a running (or stuck) AI step so it can be started again."""
+    return await onboarding.cancel_step(staff.actor, tenant_id, step)
+
+
 @router.post("/workspaces/{tenant_id}/onboarding/{step}")
 async def onboarding_propose(
     tenant_id: uuid.UUID, step: OnboardingStepName, body: NotesIn, staff: ConfigWriter

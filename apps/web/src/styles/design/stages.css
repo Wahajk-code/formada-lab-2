@@ -414,3 +414,17 @@
 .fg-bar i { display: block; height: 8px; border-radius: 99px; background: linear-gradient(90deg, var(--jade) var(--share), var(--fd-border) var(--share)); }
 .discovery-assistant { padding-top: 6px; }
 .fg-issue .stage-badge { align-self: flex-start; flex: none; }
+
+/* Running and failed AI steps: plain words, a way out, details tucked away */
+.step-status { display: flex; align-items: flex-start; gap: 12px; padding: 14px 16px; border-radius: 14px; background: var(--ice-blue); font-size: 13px; }
+.step-status > svg { flex: none; margin-top: 2px; }
+.step-status > div { min-width: 0; flex: 1; }
+.step-status strong { display: block; font-size: 14px; }
+.step-status p { margin: 3px 0 0; color: var(--fd-secondary); overflow-wrap: anywhere; }
+.step-status.slow { background: #fff6e5; }
+.step-status.failed { background: #fdeeee; }
+.step-status.failed strong, .step-status.failed > svg { color: #a12626; }
+.step-status details { margin-top: 8px; }
+.step-status summary { cursor: pointer; color: var(--fd-secondary); font-weight: 600; }
+.step-status code { display: block; margin-top: 6px; padding: 8px 10px; border-radius: 8px; background: var(--fd-white); font: 400 12px/1.5 var(--fd-mono); overflow-wrap: anywhere; }
+@media (max-width: 640px) { .step-status { flex-wrap: wrap; } .step-status .btn { width: 100%; justify-content: center; } }

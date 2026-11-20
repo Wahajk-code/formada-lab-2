@@ -1123,3 +1123,37 @@ def judge_sku_overlap(
             "sales sku (a semantic view may expose it)."
         )
     return report, entry
+
+
+def explain_failure(raw: str) -> str:
+    """A plain-words reason for a failed AI step, for the people running the console. The raw
+    technical error is kept next to it ("Details: ...")."""
+    t = (raw or "").lower()
+    if "401" in t or "authentication" in t or "invalid x-api-key" in t or "api key" in t:
+        return (
+            "The AI service rejected our key (invalid or missing). Ask whoever runs this server "
+            "to check the API key, then run this step again."
+        )
+    if "credit balance" in t or "billing" in t or "insufficient" in t:
+        return "The AI account is out of credit. Top it up, then run this step again."
+    if "429" in t or "rate_limit" in t or "rate limit" in t:
+        return "The AI service is rate limiting us. Wait a minute, then run this step again."
+    if "529" in t or "overloaded" in t or any(f" {c}" in f" {t}" for c in ("500", "502", "503")):
+        return "The AI service is busy right now. Run this step again in a minute."
+    if "timed out" in t or "timeout" in t:
+        return "The AI took too long to answer. Run this step again; a shorter instruction helps."
+    if "cut off" in t or "max_tokens" in t or "schema" in t:
+        return "The AI's answer was cut off. Run this step again, or shorten the instructions."
+    if "refusal" in t:
+        return "The AI declined to answer. Reword the instructions and run this step again."
+    if "restart" in t or "stopped" in t:
+        return "This step stopped before it finished. Run it again."
+    return "Something went wrong while the AI was working. Run this step again."
+
+
+def failure_text(raw: str) -> str:
+    """What is stored on a failed step: the plain reason, then the technical details."""
+    raw = (raw or "").strip()
+    if not raw:
+        return explain_failure(raw)
+    return f"{explain_failure(raw)} (Details: {raw[:1500]})"
