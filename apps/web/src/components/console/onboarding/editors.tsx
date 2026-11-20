@@ -5,7 +5,7 @@ import { BookOpen, ChevronDown, LoaderCircle, Plus, Save, Trash2 } from "lucide-
 import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 
-import { editMetricsProposal, editRulesProposal } from "@/app/console-actions";
+import { draftCustomMetric, editMetricsProposal, editRulesProposal } from "@/app/console-actions";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { Pill, TONE } from "@/components/onboarding/tone";
@@ -92,6 +92,86 @@ export function roleRefs(roles: OnboardingState["org"]["roles"]): { ref: string;
 
 type Cell = { on: boolean; alert: string; daily: boolean; weight: number };
 
+/** "New metric" (design frame A15): plain words in, an AI-written and tested draft out. The draft
+ * lands under "Custom for this workspace" in the metric library, where the team approves it. */
+function NewMetricForm({ state, onDone }: { state: OnboardingState; onDone: (message?: string) => void }) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  const [f, setF] = useState({ name: "", unit: "", department: "", threshold: "", direction: "infer", calc: "" });
+  const archetypes = state.mappings.map((m) => m.archetype);
+  const ready = f.name.trim() && f.calc.trim() && archetypes.length > 0;
+  const submit = () =>
+    start(async () => {
+      setError(null);
+      const parts = [f.calc.trim()];
+      if (f.department) parts.push(`This metric is for the ${f.department} department.`);
+      if (f.threshold.trim()) parts.push(`Alert when it changes by ${f.threshold.trim()}.`);
+      const res = await draftCustomMetric(state.workspace.id, {
+        name: f.name.trim(),
+        archetypes,
+        instructions: parts.join(" "),
+        ...(f.unit.trim() ? { unit: f.unit.trim() } : {}),
+        ...(f.direction === "infer" ? {} : { higher_is_better: f.direction === "higher" }),
+      });
+      if (!res.ok) return setError(res.error);
+      router.refresh();
+      onDone("Draft created and tested on the customer's data. Approve it in the metric library below.");
+    });
+  return (
+    <div className="new-metric stage-form">
+      <h4>New metric</h4>
+      <div className="stage-fields">
+        <label>
+          Metric name
+          <input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
+        </label>
+        <label>
+          Unit
+          <input value={f.unit} placeholder="e.g. %, days, USD" onChange={(e) => setF({ ...f, unit: e.target.value })} />
+        </label>
+        <label>
+          Department
+          <select value={f.department} onChange={(e) => setF({ ...f, department: e.target.value })}>
+            <option value="">Company-wide</option>
+            {state.org.departments.map((d) => (
+              <option key={d.name} value={d.name}>
+                {d.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Threshold
+          <input value={f.threshold} placeholder="e.g. 10% change" onChange={(e) => setF({ ...f, threshold: e.target.value })} />
+        </label>
+      </div>
+      <label>
+        Improvement direction
+        <select value={f.direction} onChange={(e) => setF({ ...f, direction: e.target.value })} style={{ maxWidth: 320 }}>
+          <option value="infer">Infer from metric</option>
+          <option value="higher">Higher is better</option>
+          <option value="lower">Lower is better</option>
+        </select>
+      </label>
+      <label>
+        Calculation
+        <textarea value={f.calc} placeholder="Describe how this metric is calculated." onChange={(e) => setF({ ...f, calc: e.target.value })} />
+      </label>
+      {error && <p className="stage-helper" role="alert">{error}</p>}
+      <div className="stage-form-footer">
+        <button type="button" className="btn btn-primary" disabled={!ready || pending} onClick={submit}>
+          {pending ? <LoaderCircle className="animate-spin" /> : <Icon name="check" size={16} />}
+          <span>{pending ? "Drafting and testing…" : "Add to catalog"}</span>
+        </button>
+        <button type="button" className="btn btn-secondary" disabled={pending} onClick={() => onDone()}>
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function WhoSeesWhat({ state, step, editable }: { state: OnboardingState; step: OnboardingStep; editable: boolean }) {
   const router = useRouter();
   const out = step.output as any;
@@ -113,6 +193,7 @@ export function WhoSeesWhat({ state, step, editable }: { state: OnboardingState;
   const [pending, start] = useTransition();
   const [msg, setMsg] = useState<string | null>(null);
   const [tab, setTab] = useState<"roles" | "catalog">("roles");
+  const [adding, setAdding] = useState(false);
   const [roleRef, setRoleRef] = useState(roles[0]?.ref ?? "");
   const [search, setSearch] = useState("");
   const dirty = JSON.stringify(grid) !== JSON.stringify(initial());
@@ -153,6 +234,15 @@ export function WhoSeesWhat({ state, step, editable }: { state: OnboardingState;
           <p>Review and adjust which measures each role watches before the customer runs the trial.</p>
         </div>
       </div>
+      {adding && (
+        <NewMetricForm
+          state={state}
+          onDone={(message) => {
+            setAdding(false);
+            if (message) setMsg(message);
+          }}
+        />
+      )}
       <dl className="source-totals metric-totals">
         <div>
           <dt>Roles with metrics</dt>
@@ -178,6 +268,11 @@ export function WhoSeesWhat({ state, step, editable }: { state: OnboardingState;
           <Icon name="activity" size={15} /> Metric catalog
         </button>
       </div>
+      {!adding && (
+        <button type="button" className="btn btn-secondary new-metric-open" disabled={!editable} onClick={() => setAdding(true)}>
+          <Icon name="plus" size={15} /> New metric
+        </button>
+      )}
 
       {tab === "roles" && selected && (
         <div className="metric-workbench">

@@ -358,3 +358,6 @@
 .customer-ideas li { display: flex; justify-content: space-between; gap: 12px; padding: 12px 0; border-top: 1px solid var(--fd-border); font-size: 13px; }
 .customer-ideas li span { min-width: 0; overflow-wrap: anywhere; }
 .customer-ideas time { flex: none; color: var(--fd-secondary); font-size: 12px; }
+.new-metric { padding: 16px; margin: 4px 0 14px; border: 1px solid var(--fd-border); border-radius: 16px; background: var(--fd-surface); }
+.new-metric h4 { margin: 0; font-size: 15px; font-weight: 600; }
+.new-metric-open { margin: 0 0 12px; }
