@@ -15,6 +15,17 @@ settings = get_settings()
 configure_logging(settings.log_level, settings.log_json)
 log = get_logger(__name__)
 
+if settings.env != "local":  # a deployed API refuses to start with weak or missing secrets
+    for name, value in (("AUTH_JWT_SECRET", settings.auth_jwt_secret), ("INTERNAL_SERVICE_TOKEN", settings.internal_service_token)):
+        if len(value) < 32:
+            raise RuntimeError(f"{name} must be at least 32 characters outside local use")
+
+if settings.lab_mode:
+    # The review lab: admins and developers have the same powers for now (roles stay separate).
+    from app.domain.auth import PERMISSIONS
+
+    PERMISSIONS["developer"] = PERMISSIONS["admin"]
+
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -27,7 +38,11 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     log.info("api.shutdown")
 
 
-app = FastAPI(title="Formada API", version="0.1.0", lifespan=lifespan)
+# The API schema and docs are for local development only: a deployed API does not list its routes.
+_docs: dict[str, None] = (
+    {} if settings.env == "local" else {"docs_url": None, "redoc_url": None, "openapi_url": None}
+)
+app = FastAPI(title="Formada API", version="0.1.0", lifespan=lifespan, **_docs)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
