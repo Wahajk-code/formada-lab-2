@@ -361,3 +361,11 @@
 .new-metric { padding: 16px; margin: 4px 0 14px; border: 1px solid var(--fd-border); border-radius: 16px; background: var(--fd-surface); }
 .new-metric h4 { margin: 0; font-size: 15px; font-weight: 600; }
 .new-metric-open { margin: 0 0 12px; }
+.ai-instructions { border: 1px solid var(--fd-border); border-radius: 20px; background: var(--fd-white); overflow: hidden; }
+.ai-instructions > summary { display: flex; align-items: center; gap: 9px; padding: 13px 18px; font-size: 13.5px; font-weight: 600; cursor: pointer; list-style: none; }
+.ai-instructions > summary::-webkit-details-marker { display: none; }
+.ai-instructions > summary > :last-child { margin-left: auto; transition: transform .17s; }
+.ai-instructions[open] > summary > :last-child { transform: rotate(180deg); }
+.ai-instructions[open] > summary { border-bottom: 1px solid var(--fd-border); }
+.ai-instructions > .stage-panel { border: 0; border-radius: 0; box-shadow: none; margin: 0; }
+@media (prefers-reduced-motion: reduce) { .ai-instructions > summary > :last-child { transition: none; } }

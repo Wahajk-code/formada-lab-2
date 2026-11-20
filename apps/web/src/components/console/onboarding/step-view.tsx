@@ -714,7 +714,7 @@ export function StepView({
           {agent && !step && !locked && stepKey !== "org" && (
             <p className="text-sm text-muted-foreground">Not started. Start the analysis below.</p>
           )}
-          {agent && !locked && !info.team_approved && (
+          {agent && !locked && !info.team_approved && stepKey !== "metrics" && (
             <AgentActions
               key={`actions-${step?.id ?? "new"}`}
               name={agent}
@@ -762,6 +762,22 @@ export function StepView({
             step={step!}
             editable={editable && step!.status === "proposed"}
           />
+        )}
+        {agent && stepKey === "metrics" && !locked && !info.team_approved && (
+          <details className="ai-instructions" open>
+            <summary>
+              <Icon name="sparkles" size={16} />
+              <span>AI generation instructions</span>
+              <Icon name="chevron-down" size={16} />
+            </summary>
+            <AgentActions
+              key={`actions-${step?.id ?? "new"}`}
+              name={agent}
+              state={state}
+              can={can}
+              locked={null}
+            />
+          </details>
         )}
         {ready && stepKey === "metrics" && (
           <MetricLibrary key={`lib-${step!.id}`} state={state} step={step!} editable={editable && step!.status === "proposed"} />
