@@ -613,6 +613,18 @@ async def onboarding_connect_mock(tenant_id: uuid.UUID, staff: ConfigWriter) -> 
     return await onboarding.connect_mock(staff.actor, tenant_id)
 
 
+class SnapshotIn(BaseModel):
+    snapshot_id: str
+
+
+@router.post("/workspaces/{tenant_id}/onboarding/snapshot")
+async def onboarding_select_snapshot(
+    tenant_id: uuid.UUID, body: SnapshotIn, staff: ConfigWriter
+) -> dict[str, Any]:
+    """Lab only: choose which saved warehouse snapshot discovery replays."""
+    return await onboarding.select_snapshot(staff.actor, tenant_id, body.snapshot_id)
+
+
 # Questions to the client and go-live (ADR 0027). Declared before /onboarding/{step}.
 
 

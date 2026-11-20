@@ -440,6 +440,21 @@ export type OnboardingState = {
   };
   /** Local only: the console offers a one-click mock warehouse connection. */
   mock_connection: boolean;
+  /** Lab only: the saved warehouse snapshots discovery can replay. */
+  lab: {
+    items: {
+      id: string;
+      database: string | null;
+      tables: number;
+      views: number;
+      guide: string | null;
+      summary: string;
+      approved: boolean;
+      saved_at: string;
+      recommended: boolean;
+    }[];
+    selected: string | null;
+  } | null;
   connection: {
     account_identifier: string;
     user_name: string;
@@ -877,6 +892,10 @@ export const consoleApi = {
       `/workspaces/${id}/onboarding/connection/mock`,
       {},
     ),
+  selectSnapshot: (id: string, snapshotId: string) =>
+    send<{ status: string; selected: string }>("POST", `/workspaces/${id}/onboarding/snapshot`, {
+      snapshot_id: snapshotId,
+    }),
   approveConnect: (id: string, reason = "") =>
     send("POST", `/workspaces/${id}/onboarding/connect/approve`, { reason }),
   approveTrial: (id: string, reason = "") =>

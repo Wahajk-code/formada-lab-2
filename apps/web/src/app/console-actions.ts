@@ -292,6 +292,10 @@ export async function connectMockWarehouse(id: string) {
   return attempt(() => consoleApi.connectMock(id), ob(id));
 }
 
+export async function selectSnapshot(id: string, snapshotId: string) {
+  return attempt(() => consoleApi.selectSnapshot(id, snapshotId), ob(id));
+}
+
 export async function resendWelcome(id: string) {
   return attempt(() => consoleApi.resendWelcome(id), ob(id));
 }

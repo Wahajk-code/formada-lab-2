@@ -203,13 +203,78 @@ def _conn(wc: WarehouseConnection) -> ConnectionConfig:
 
 def mock_connection_available() -> bool:
     s = get_settings()
-    return s.env == "local" and bool(s.mock_warehouse_database)
+    return lab() or (s.env == "local" and bool(s.mock_warehouse_database))
+
+
+async def lab_snapshots(tenant_id: uuid.UUID) -> dict[str, Any]:
+    """The saved warehouse profiles the lab can replay, newest first, with the recommended one.
+
+    A snapshot is the shape-only profile stored on a discovery run (names, types, counts; no
+    rows). Runs that replayed the same profile count once. Recommended = the profile whose
+    guide came from the newest discovery agent, then the one with the most tables."""
+    saved = [r for r in await _lab_prior(tenant_id, "discovery") if (r.input or {}).get("profile")]
+    seen: dict[tuple[Any, int, int], dict[str, Any]] = {}
+    for r in saved:
+        p = r.input["profile"]
+        key = (p.get("database"), len(p.get("tables", [])), len(p.get("semantic_views", [])))
+        if key in seen:
+            continue
+        out = r.output or {}
+        seen[key] = {
+            "id": str(r.id),
+            "database": p.get("database"),
+            "tables": key[1],
+            "views": key[2],
+            "guide": f"{r.agent_key} v{r.agent_version}" if r.agent_key else None,
+            "guide_version": r.agent_version or 0,
+            "summary": out.get("summary", ""),
+            "approved": r.status == "approved",
+            "saved_at": r.created_at.isoformat(),
+        }
+    items = list(seen.values())
+    best = max(items, key=lambda x: (x["guide_version"], x["tables"]), default=None)
+    async with tenant_tx("service", tenant_id) as s:
+        wc = await s.scalar(select(WarehouseConnection))
+    chosen = (wc.test_result or {}).get("snapshot_id") if wc else None
+    ids = {x["id"] for x in items}
+    selected = chosen if chosen in ids else (best["id"] if best else None)
+    for x in items:
+        x["recommended"] = bool(best and x["id"] == best["id"])
+    return {"items": items, "selected": selected}
+
+
+async def select_snapshot(actor: str, tenant_id: uuid.UUID, snapshot_id: str) -> dict[str, Any]:
+    if not lab():
+        raise Conflict("snapshots exist only in the lab")
+    snaps = await lab_snapshots(tenant_id)
+    if snapshot_id not in {x["id"] for x in snaps["items"]}:
+        raise NotFound("snapshot")
+    async with tenant_tx("service", tenant_id) as s:
+        wc = await s.scalar(select(WarehouseConnection))
+        if wc is None:
+            raise Conflict("connect first")
+        wc.test_result = {**(wc.test_result or {}), "snapshot_id": snapshot_id}
+    await console._log(actor, "workspace", "lab.snapshot_selected", None, snapshot_id, tenant_id)
+    return {"status": "ok", "selected": snapshot_id}
 
 
 async def connect_mock(actor: str, tenant_id: uuid.UUID) -> dict[str, Any]:
-    """Local only: connect to the local mock warehouse (fakesnow) with the preset from .env."""
+    """Local: connect to the fakesnow mock warehouse (preset from .env). Lab: pretend-connect to
+    the saved DavidsTea warehouse (the snapshot is replayed, nothing is queried)."""
     if not mock_connection_available():
         raise Conflict("no local mock warehouse is configured")
+    if lab():
+        snaps = await lab_snapshots(tenant_id)
+        db = next((x["database"] for x in snaps["items"] if x["id"] == snaps["selected"]), None)
+        out = await save_connection(actor, tenant_id, {
+            "account_identifier": "davidstea-lab", "user_name": "FORMADA_SVC",
+            "role_name": "FORMADA_READONLY", "warehouse_name": "FORMADA_WH",
+            "database_name": db or "DAVIDSTEA",
+            "secret_ref": "lab/snapshot", "monthly_credit_cap": 25,
+        })  # fmt: skip
+        if snaps["selected"]:
+            await select_snapshot(actor, tenant_id, snaps["selected"])
+        return out
     s = get_settings()
     return await save_connection(actor, tenant_id, {
         "account_identifier": "local-mock", "user_name": "FORMADA_SVC",
@@ -255,7 +320,9 @@ async def save_connection(
     async with tenant_tx("service", tenant_id) as s:
         wc = await s.scalar(select(WarehouseConnection))
         assert wc is not None
-        wc.status, wc.test_result, wc.last_tested_at = status, result, started
+        keep = (wc.test_result or {}).get("snapshot_id")
+        wc.status, wc.last_tested_at = status, started
+        wc.test_result = {**result, "snapshot_id": keep} if keep else result
     await console._log(actor, "workspace", "warehouse_connection", None, conn.database, tenant_id)
     return {"status": status, **result}
 
@@ -360,6 +427,7 @@ async def state(tenant_id: uuid.UUID) -> dict[str, Any]:
             "llm": f"{llm.provider}/{llm.model}" if llm else None,
         },
         "mock_connection": mock_connection_available(),
+        "lab": await lab_snapshots(tenant_id) if lab() else None,
         "connection": {
             "account_identifier": wc.account_identifier,
             "user_name": wc.user_name,
@@ -939,10 +1007,11 @@ async def start_discovery(
     async def work(step_id: uuid.UUID) -> None:
         if lab():
             saved = await _lab_prior(tenant_id, "discovery")
-            profiles = [r.input["profile"] for r in saved if (r.input or {}).get("profile")]
-            if not profiles:
+            snaps = await lab_snapshots(tenant_id)
+            pick = next((r for r in saved if str(r.id) == snaps["selected"]), None)
+            if pick is None or not (pick.input or {}).get("profile"):
                 raise Conflict("the lab has no saved profile: load a snapshot first")
-            profile = profiles[0]
+            profile = pick.input["profile"]
         else:
             profile = await build_profile(
                 wh, conn, rules.discovery_join_probe_budget, rules.discovery_join_min_overlap_pct

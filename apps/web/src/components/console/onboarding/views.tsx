@@ -15,6 +15,7 @@ import {
   connectMockWarehouse,
   recheckMapping,
   saveConnection,
+  selectSnapshot,
 } from "@/app/console-actions";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
@@ -737,11 +738,65 @@ export function ConnectStep({
             <p>Verify the scoped connection before starting discovery.</p>
           </div>
         </div>
+        {state.lab && (
+          <div className="snapshot-picker">
+            <div className="snapshot-head">
+              <strong>Warehouse snapshot</strong>
+              <p>
+                The lab replays a saved copy of the customer&apos;s warehouse (names, types and counts, never rows).
+                Pick the one this review works on.
+              </p>
+            </div>
+            {state.lab.items.length === 0 && (
+              <p className="stage-helper">No snapshot is loaded yet. Ask the lab owner to load one.</p>
+            )}
+            <ul>
+              {state.lab.items.map((s) => {
+                const on = state.lab?.selected === s.id;
+                return (
+                  <li key={s.id}>
+                    <button
+                      type="button"
+                      className={cn("snapshot-card", on && "on")}
+                      aria-pressed={on}
+                      disabled={!can || pending}
+                      onClick={() =>
+                        start(async () => {
+                          const res = await selectSnapshot(state.workspace.id, s.id);
+                          setMsg(res.ok ? "Snapshot selected." : res.error);
+                          router.refresh();
+                        })
+                      }
+                    >
+                      <span className="snapshot-radio">{on && <Icon name="check" size={13} />}</span>
+                      <span className="snapshot-body">
+                        <strong>
+                          {s.database ?? "Warehouse"}
+                          {s.recommended && <span className="stage-badge positive">Recommended: best version</span>}
+                        </strong>
+                        <span>
+                          {s.tables} tables · {s.views} semantic views
+                          {s.guide ? ` · guide from ${s.guide}` : ""} · saved{" "}
+                          {new Date(s.saved_at).toLocaleDateString("en-CA")}
+                        </span>
+                        {s.summary && <span className="snapshot-sum">{s.summary}</span>}
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        )}
         {state.mock_connection && can && (
           <div className="discovery-semantic">
             <div>
-              <strong>Local mock warehouse</strong>
-              <p>One click fills and tests the connection (preset in .env).</p>
+              <strong>{state.lab ? "Connect to the example warehouse" : "Local mock warehouse"}</strong>
+              <p>
+                {state.lab
+                  ? "The connection is simulated: it passes the test and uses the snapshot selected above. DavidsTea is always available as the live example."
+                  : "One click fills and tests the connection (preset in .env)."}
+              </p>
             </div>
             <button
               type="button"
@@ -762,7 +817,7 @@ export function ConnectStep({
               }
             >
               {pending ? <LoaderCircle className="animate-spin" /> : <Icon name="play" size={17} />}
-              <span>Use the mock warehouse</span>
+              <span>{state.lab ? "Connect to DavidsTea" : "Use the mock warehouse"}</span>
             </button>
           </div>
         )}
