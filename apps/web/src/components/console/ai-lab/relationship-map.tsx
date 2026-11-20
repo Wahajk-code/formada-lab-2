@@ -31,8 +31,24 @@ function parse(links: string[]): Rel[] {
 }
 
 const W = 232;
-const H = 50;
+const H = 64;
 const GAP = 12;
+
+/** Word-wrap a card title to at most two lines (the second ends in an ellipsis if it overflows). */
+function titleLines(text: string, perLine = 22): string[] {
+  const lines: string[] = [];
+  let cur = "";
+  for (const word of text.split(" ")) {
+    const w = word.length > perLine ? `${word.slice(0, perLine - 1)}…` : word;
+    if (cur && `${cur} ${w}`.length > perLine) {
+      lines.push(cur);
+      cur = w;
+    } else cur = cur ? `${cur} ${w}` : w;
+  }
+  if (cur) lines.push(cur);
+  if (lines.length > 2) return [lines[0], `${lines.slice(1).join(" ").slice(0, perLine - 1)}…`];
+  return lines.length ? lines : [text];
+}
 
 /** How the tables of a semantic view connect: one main table at a time in the middle with
  * everything it reaches around it, and a grid of every link at the bottom. */
@@ -129,10 +145,17 @@ export function RelationshipMap({ view }: { view: any }) {
                 className="cursor-default transition-opacity"
               >
                 <rect width={W} height={H} rx={12} className="fill-card" stroke="rgba(0,0,0,0.08)" />
-                <text x={12} y={19} className="fill-foreground text-[12px] font-semibold">{plain(t)}</text>
+                <title>{`${plain(t)} (${String(info?.base_table ?? "")})`}</title>
+                <text x={12} y={19} className="fill-foreground text-[12px] font-semibold">
+                  {titleLines(plain(t)).map((line, li) => (
+                    <tspan key={line} x={12} dy={li === 0 ? 0 : 13}>
+                      {line}
+                    </tspan>
+                  ))}
+                </text>
                 <text x={W - 12} y={19} textAnchor="end" className="fill-muted-foreground text-[9.5px]">{kind}</text>
-                <text x={12} y={34} className="fill-muted-foreground font-mono text-[9.5px]">{String(info?.base_table ?? "").split(".").pop()}</text>
-                <text x={12} y={45} className="fill-muted-foreground font-mono text-[9px]">via {key?.keys.slice(0, 30)}</text>
+                <text x={12} y={titleLines(plain(t)).length > 1 ? 47 : 34} className="fill-muted-foreground font-mono text-[9.5px]">{String(info?.base_table ?? "").split(".").pop()}</text>
+                <text x={12} y={titleLines(plain(t)).length > 1 ? 58 : 45} className="fill-muted-foreground font-mono text-[9px]">via {key?.keys.slice(0, 30)}</text>
               </g>
             );
           })}

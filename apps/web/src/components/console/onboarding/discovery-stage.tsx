@@ -72,14 +72,42 @@ type TableRow = {
 // Table relationship diagram (design: discoverySchema)
 // ---------------------------------------------------------------------------------------------
 
+/** Split a long table name into lines that fit the card, breaking after underscores. */
+function wrapName(name: string, perLine = 23): string[] {
+  const lines: string[] = [];
+  let cur = "";
+  for (const token of name.split(/(?<=_)/)) {
+    const rest = token;
+    if (rest.length > perLine) {
+      // One very long word: split it into even parts, not a full line and a stub.
+      if (cur) lines.push(cur);
+      cur = "";
+      const parts = Math.ceil(rest.length / perLine);
+      const size = Math.ceil(rest.length / parts);
+      for (let i = 0; i < rest.length; i += size) lines.push(rest.slice(i, i + size));
+      continue;
+    }
+    if (cur && (cur + rest).length > perLine) {
+      lines.push(cur);
+      cur = rest;
+    } else cur += rest;
+  }
+  if (cur) lines.push(cur);
+  return lines.length ? lines : [name];
+}
+/** Card header height: the kind line plus one line per wrapped name line. */
+const headerFor = (lines: number) => Math.round(36 + 14.4 * lines);
+
 function SchemaDiagram({ tables }: { tables: TableRow[] }) {
   const inset = 22;
   const tableWidth = 190;
   const columnGap = 48;
-  const headerHeight = 50;
   const fieldHeight = 23;
   const rowGap = 52;
   const maxFields = 5;
+  const nameLines = new Map(tables.map((t) => [t.table, wrapName(short(t.table))]));
+  const headOf = (table: string) => headerFor(nameLines.get(table)?.length ?? 1);
+  const headerHeight = Math.max(50, ...tables.map((t) => headOf(t.table)));
   const maxTableHeight = headerHeight + fieldHeight * maxFields + 6;
   const rowPitch = maxTableHeight + rowGap;
   const rowsN = Math.max(1, Math.ceil(tables.length / 3));
@@ -123,7 +151,7 @@ function SchemaDiagram({ tables }: { tables: TableRow[] }) {
       const toRight = to.x <= from.x;
       const startX = from.x + (fromRight ? tableWidth : 0);
       const endX = to.x + (toRight ? tableWidth : 0);
-      const portY = (p: typeof from, f: string) => p.y + headerHeight + fieldHeight * (p.fields.indexOf(f) + 0.5);
+      const portY = (p: typeof from, f: string) => p.y + headOf(p.t.table) + fieldHeight * (p.fields.indexOf(f) + 0.5);
       const startY = portY(from, j.column);
       const endY = portY(to, j.references_column);
       const bendX = (startX + endX) / 2;
@@ -172,17 +200,26 @@ function SchemaDiagram({ tables }: { tables: TableRow[] }) {
             {wires}
           </svg>
           {[...placed.values()].map(({ t, x, y, fields }) => (
-            <article key={t.table} className="schema-table" style={{ left: x, top: y }}>
+            <article
+              key={t.table}
+              className="schema-table"
+              style={{ left: x, top: y, ["--schema-header-height" as string]: `${headOf(t.table)}px` }}
+              title={t.table}
+            >
               <header>
                 <span>
                   <Icon name="table" size={13} /> {t.kind} / {t.schema}
                 </span>
-                <h5>{short(t.table)}</h5>
+                <h5>
+                  {(nameLines.get(t.table) ?? [short(t.table)]).map((line) => (
+                    <span key={line}>{line}</span>
+                  ))}
+                </h5>
               </header>
               <ul aria-label={`${short(t.table)} fields`}>
                 {fields.map((f) => (
                   <li key={f} className={linked.has(`${t.table}.${f}`) ? "is-linked" : ""}>
-                    <code>{f}</code>
+                    <code title={f}>{f}</code>
                     {t.keys.some((k) => short(k).toUpperCase() === f.toUpperCase()) && (
                       <span aria-label="Key" title="Key">
                         PK

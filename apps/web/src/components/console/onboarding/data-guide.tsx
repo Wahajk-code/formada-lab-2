@@ -23,6 +23,30 @@ import { cn } from "@/lib/utils";
 const num = (v: number | null | undefined) => (v == null ? "–" : v.toLocaleString("en-CA"));
 const short = (t: string) => t.split(".").pop() ?? t;
 
+/** Break a long table name into lines that fit an SVG card, after underscores. */
+function wrapName(name: string, perLine = 24): string[] {
+  const lines: string[] = [];
+  let cur = "";
+  for (const token of name.split(/(?<=_)/)) {
+    const rest = token;
+    if (rest.length > perLine) {
+      // One very long word: split it into even parts, not a full line and a stub.
+      if (cur) lines.push(cur);
+      cur = "";
+      const parts = Math.ceil(rest.length / perLine);
+      const size = Math.ceil(rest.length / parts);
+      for (let i = 0; i < rest.length; i += size) lines.push(rest.slice(i, i + size));
+      continue;
+    }
+    if (cur && (cur + rest).length > perLine) {
+      lines.push(cur);
+      cur = rest;
+    } else cur += rest;
+  }
+  if (cur) lines.push(cur);
+  return lines.length ? lines : [name];
+}
+
 // ---------------------------------------------------------------------------------------------
 // Relationship diagram: facts in the middle, other tables on both sides, joins as curves
 // ---------------------------------------------------------------------------------------------
@@ -33,7 +57,7 @@ export function ErDiagram({ tables, rows }: { tables: any[]; rows: Record<string
     LINE = 16,
     GAP_Y = 22,
     COL_X = [10, 360, 710];
-  const boxH = (t: any) => HEAD + LINE + Math.min(t.key_columns.length, 4) * LINE + 12;
+  const boxH = (t: any) => HEAD + LINE + Math.min(t.key_columns.length, 4) * LINE + 12 + (wrapName(short(t.table)).length - 1) * 14;
   const facts = tables.filter((t) => t.kind === "fact");
   const others = tables.filter((t) => t.kind !== "fact");
   const cols: any[][] = [[], facts, []];
@@ -78,14 +102,19 @@ export function ErDiagram({ tables, rows }: { tables: any[]; rows: Record<string
           return (
             <g key={t.table} transform={`translate(${p.x},${p.y})`}>
               <rect width={W} height={p.h} rx={12} className={t.kind === "fact" ? "fill-foreground" : "fill-card"} stroke="rgba(0,0,0,0.08)" />
+              <title>{t.table}</title>
               <text x={12} y={19} className={cn("text-[12px] font-semibold", t.kind === "fact" ? "fill-background" : "fill-foreground")}>
-                {short(t.table).length > 24 ? `${short(t.table).slice(0, 23)}…` : short(t.table)}
+                {wrapName(short(t.table)).map((line, li) => (
+                  <tspan key={line} x={12} dy={li === 0 ? 0 : 14}>
+                    {line}
+                  </tspan>
+                ))}
               </text>
-              <text x={12} y={HEAD + 8} className={cn("text-[10px]", t.kind === "fact" ? "fill-background/70" : "fill-muted-foreground")}>
+              <text x={12} y={HEAD + 8 + (wrapName(short(t.table)).length - 1) * 14} className={cn("text-[10px]", t.kind === "fact" ? "fill-background/70" : "fill-muted-foreground")}>
                 {t.kind} · {num(rows[t.table])}
               </text>
               {t.key_columns.slice(0, 4).map((c: string, i: number) => (
-                <text key={c} x={12} y={HEAD + 12 + (i + 1) * LINE} className={cn("font-mono text-[10px]", t.kind === "fact" ? "fill-background/80" : "fill-muted-foreground")}>
+                <text key={c} x={12} y={HEAD + 12 + (i + 1) * LINE + (wrapName(short(t.table)).length - 1) * 14} className={cn("font-mono text-[10px]", t.kind === "fact" ? "fill-background/80" : "fill-muted-foreground")}>
                   {c.slice(0, 32)}
                 </text>
               ))}

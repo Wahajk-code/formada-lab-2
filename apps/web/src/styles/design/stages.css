@@ -428,3 +428,9 @@
 .step-status summary { cursor: pointer; color: var(--fd-secondary); font-weight: 600; }
 .step-status code { display: block; margin-top: 6px; padding: 8px 10px; border-radius: 8px; background: var(--fd-white); font: 400 12px/1.5 var(--fd-mono); overflow-wrap: anywhere; }
 @media (max-width: 640px) { .step-status { flex-wrap: wrap; } .step-status .btn { width: 100%; justify-content: center; } }
+
+/* Long table names: wrap in the diagram cards, truncate long field names, wrap joins */
+.schema-table h5 span { display: block; overflow-wrap: anywhere; }
+.schema-table header > span { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.schema-table li code { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.discovery-join code { overflow-wrap: anywhere; }
