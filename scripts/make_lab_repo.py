@@ -119,6 +119,8 @@ FILES["apps/web/vercel.json"] = """\
 }
 """
 
+FILES[".gitattributes"] = "* text=auto eol=lf\n*.sh text eol=lf\nDockerfile text eol=lf\n"
+
 FILES[".env.example"] = """\
 # API (set these in Render; never commit real values).
 ENV=staging
