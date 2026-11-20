@@ -1,0 +1,34 @@
+key: discount_rate
+version: 1
+playbook: sales
+description: >
+  Discount given as a share of gross sales, per store and the web shop, per week (markdown
+  depth). Driver: average weekly gross sales over the last 4 weeks (exposure).
+archetypes:
+  sl: sales_line
+params:
+  weeks: { type: integer, default: 20, minimum: 14, maximum: 52 }
+sql: |
+  select {{sl.location_name}} as entity,
+         date_trunc('week', {{sl.sale_date}})::date as period_start,
+         round(100 * sum({{sl.discount}}) / nullif(sum({{sl.gross_sales}}), 0), 2) as value,
+         sum({{sl.units_sold}}) as n
+  from ({{sl}}) as sl
+  where {{sl.sale_date}} > dateadd('week', -%(weeks)s, %(period_end)s::date)
+    and {{sl.sale_date}} <= %(period_end)s::date
+  group by 1, 2
+  order by 1, 2
+  limit %(row_cap)s
+drivers:
+  gross_sales:
+    exposure: weekly_gross_sales
+    sql: |
+      select {{sl.location_name}} as entity,
+             round(sum({{sl.gross_sales}}) / 4, 2) as weekly_gross_sales,
+             round(sum({{sl.discount}}) / 4, 2) as weekly_discount
+      from ({{sl}}) as sl
+      where {{sl.sale_date}} > dateadd('week', -4, %(period_end)s::date)
+        and {{sl.sale_date}} <= %(period_end)s::date
+      group by 1
+      order by 1
+      limit %(row_cap)s

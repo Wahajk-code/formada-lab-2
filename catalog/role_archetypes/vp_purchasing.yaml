@@ -1,0 +1,13 @@
+key: vp_purchasing
+version: 1
+playbook: purchasing
+level: mid
+title: { en: VP Purchasing, fr: VP Approvisionnement }
+decisions_owned:
+  - Approve a new supplier
+  - Renegotiate supplier terms
+  - Reallocate volume between suppliers
+  - Approve purchase orders above the buyer limit
+decisions_forbidden:
+  - Change retail price
+kpi_notes: Supplier on-time rate above 95%; landed cost within budget; stock cover 4 to 8 weeks

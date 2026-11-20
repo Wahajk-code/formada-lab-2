@@ -1,0 +1,23 @@
+archetype: purchase_order
+metrics:
+  - key: freight_cost_per_unit
+    template: freight_cost_per_unit
+    unit: "$"
+    higher_is_better: false
+    needs: [freight_cost, units_ordered]
+    name: { en: Freight cost per unit, fr: Coût de transport par unité }
+    why: { en: Landed cost pressure by supplier., fr: Pression sur le coût rendu, par fournisseur. }
+  - key: po_average_size
+    template: po_average_size
+    unit: "units"
+    higher_is_better: true
+    needs: [units_ordered, ordered_at]
+    name: { en: Average order size, fr: Taille moyenne des commandes }
+    why: { en: Many small orders cost more to ship and handle., fr: Beaucoup de petites commandes coûtent plus cher à expédier. }
+  - key: po_volume
+    template: po_volume
+    unit: "orders"
+    higher_is_better: true
+    needs: [po_id, ordered_at]
+    name: { en: Orders placed per week, fr: Commandes passées par semaine }
+    why: { en: How busy purchasing is by supplier., fr: Niveau d'activité des achats, par fournisseur. }

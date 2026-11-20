@@ -1,0 +1,17 @@
+key: purchase_order_line
+version: 1
+description: >
+  One purchase order line with its supplier and dates. Mapped during onboarding onto the
+  customer's tables (often a join of PO header, PO lines and suppliers).
+columns:
+  po_id: Purchase order identifier
+  po_line_id: Purchase order line identifier
+  supplier_id: Supplier identifier
+  supplier_name: Supplier display name (business data, allowed in signals)
+  sku: Item / SKU code
+  ordered_at: Date the PO was placed
+  promised_at: Date the supplier promised delivery
+  received_at: Date the line was received (NULL while open)
+  qty_ordered: Units ordered
+  qty_received: Units received
+  unit_cost: Unit cost in the PO currency

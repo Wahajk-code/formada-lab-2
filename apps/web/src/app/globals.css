@@ -1,0 +1,445 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+/* The design's own component styles (variables renamed --fd-*, defined below). */
+@import "../styles/design/shell.css" layer(components);
+@import "../styles/design/stages.css" layer(components);
+@import "../styles/design/org-builder.css" layer(components);
+@import "../styles/design/dashboard.css" layer(components);
+@import "../styles/design/screens.css" layer(components);
+@import "../styles/design/engineer-chat.css" layer(components);
+@import "../styles/design/executive.css" layer(components);
+
+/* Formada.AI (redesign 2026-11-10, .handover/REDESIGN-PLAN.md): ink on white, violet surfaces,
+   iris for primary actions, jade for progress. Cards are white with a 1px violet-grey border and
+   24px corners; controls are 44px high with 12px corners. Same tokens on both sides. */
+:root {
+  --radius: 0.75rem;
+
+  --ink: #18191b;
+  --iris: #6f4ec9;
+  --iris-hover: #583daa;
+  --iris-ink: #5436a0;
+  --jade: #48b8a6;
+  --signal-violet: #806cf6;
+  --soft-violet: #eeeafe;
+  --ice-blue: #eaf1ff;
+  --positive: #e7f6ed;
+  --positive-ink: #235843;
+  --attention: #fff4d9;
+  --attention-ink: #785504;
+  --critical: #fceceb;
+  --critical-ink: #9b2c2c;
+
+  --background: #ffffff;
+  --foreground: var(--ink);
+  --surface: #faf9fc; /* panel and rail surface */
+  --surface-strong: #f5f6f7; /* surface-alt: inputs, tags, hover */
+  --card: #ffffff;
+  --card-foreground: var(--foreground);
+  --popover: #ffffff;
+  --popover-foreground: var(--foreground);
+  --primary: var(--iris);
+  --primary-foreground: #ffffff;
+  --secondary: #f5f6f7;
+  --secondary-foreground: var(--ink);
+  --muted: #f5f6f7;
+  --muted-foreground: #62666d;
+  --faint: #a3a7ad;
+  --accent: var(--soft-violet);
+  --accent-foreground: var(--iris-ink);
+  --destructive: #c53030;
+  --border: #e7e3ee;
+  --input: #e7e3ee;
+  --ring: var(--iris);
+
+  /* Depth comes from the 1px border; the shadow only lifts popovers and hovered cards. */
+  --shadow-card: 0 0 0 1px var(--border);
+  --shadow-card-hover: 0 0 0 1px #d6cbef, 0 6px 18px #2419381a;
+  --shadow-pop: 0 24px 64px #18191b1a, 0 4px 14px #18191b0a;
+  --shadow-inset: inset 0 0 0 1px var(--border);
+
+  --brand: var(--iris);
+  --brand-foreground: #ffffff;
+  --sidebar: #ffffff;
+  --sidebar-foreground: var(--ink);
+  --sidebar-muted: #62666d;
+  --sidebar-active: var(--soft-violet);
+
+  /* Names used by the design's stylesheets (src/styles/design). */
+  --fd-white: #ffffff;
+  --fd-border: var(--border);
+  --fd-surface: var(--surface);
+  --fd-surface-alt: #f5f6f7;
+  --fd-secondary: #62666d;
+  --fd-muted: #a3a7ad;
+  --fd-font: var(--font-urbanist), "Segoe UI", sans-serif;
+  --fd-mono: var(--font-plex-mono), "Cascadia Mono", Consolas, monospace;
+}
+
+/* The internal console uses the same palette; its pages keep their own structure. */
+.console {
+  --sidebar-active: var(--soft-violet);
+}
+
+@theme inline {
+  --color-brand: var(--brand);
+  --color-brand-foreground: var(--brand-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-muted: var(--sidebar-muted);
+  --color-sidebar-active: var(--sidebar-active);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-surface: var(--surface);
+  --color-surface-strong: var(--surface-strong);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --shadow-card: var(--shadow-card);
+  --shadow-card-hover: var(--shadow-card-hover);
+  --font-sans: var(--font-urbanist), "Segoe UI", sans-serif;
+  --font-mono: var(--font-plex-mono), "Cascadia Mono", Consolas, monospace;
+  --color-ink: var(--ink);
+  --color-iris: var(--iris);
+  --color-iris-hover: var(--iris-hover);
+  --color-iris-ink: var(--iris-ink);
+  --color-jade: var(--jade);
+  --color-soft-violet: var(--soft-violet);
+  --color-ice-blue: var(--ice-blue);
+  --color-positive: var(--positive);
+  --color-positive-ink: var(--positive-ink);
+  --color-attention: var(--attention);
+  --color-attention-ink: var(--attention-ink);
+  --color-critical: var(--critical);
+  --color-critical-ink: var(--critical-ink);
+  --color-faint: var(--faint);
+  --shadow-pop: var(--shadow-pop);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 2); /* 24px: cards and panels */
+
+  --animate-rise: rise 420ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  --animate-fade: fade 300ms ease-out both;
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  @keyframes fade {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    @apply font-sans antialiased;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-weight: 500;
+    font-synthesis: none;
+  }
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+}
+
+/* Org web: nodes drift slowly; dashes travel from child to parent (cards rolling up). */
+@keyframes org-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-5px);
+  }
+}
+@keyframes edge-flow {
+  to {
+    stroke-dashoffset: 28;
+  }
+}
+.org-float {
+  animation: org-float 6s ease-in-out infinite;
+  will-change: transform;
+}
+.edge-flow {
+  animation: edge-flow 1.4s linear infinite;
+}
+.org-canvas {
+  background-image: radial-gradient(circle, oklch(0 0 0 / 0.09) 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+
+/* Onboarding steps slide in the direction of travel (React <ViewTransition>, ADR 0027). */
+@keyframes step-slide {
+  from {
+    translate: var(--step-offset) 0;
+  }
+  to {
+    translate: 0 0;
+  }
+}
+@keyframes step-fade {
+  from {
+    opacity: 0;
+  }
+}
+::view-transition-old(.step-forward) {
+  --step-offset: -48px;
+  animation:
+    160ms ease-in both step-fade reverse,
+    360ms cubic-bezier(0.4, 0, 0.2, 1) both step-slide reverse;
+}
+::view-transition-new(.step-forward) {
+  --step-offset: 48px;
+  animation:
+    220ms ease-out 120ms both step-fade,
+    360ms cubic-bezier(0.2, 0.8, 0.2, 1) both step-slide;
+}
+::view-transition-old(.step-back) {
+  --step-offset: 48px;
+  animation:
+    160ms ease-in both step-fade reverse,
+    360ms cubic-bezier(0.4, 0, 0.2, 1) both step-slide reverse;
+}
+::view-transition-new(.step-back) {
+  --step-offset: -48px;
+  animation:
+    220ms ease-out 120ms both step-fade,
+    360ms cubic-bezier(0.2, 0.8, 0.2, 1) both step-slide;
+}
+/* The stepper and page header stay put while the step body slides. */
+::view-transition-group(onboarding-stepper) {
+  animation: none;
+  z-index: 50;
+}
+::view-transition-old(onboarding-stepper) {
+  display: none;
+}
+::view-transition-new(onboarding-stepper) {
+  animation: none;
+}
+@keyframes flag-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 oklch(0 0 0 / 0.35);
+  }
+  50% {
+    box-shadow: 0 0 0 5px oklch(0 0 0 / 0);
+  }
+}
+.flag-pulse {
+  animation: flag-pulse 2.2s ease-in-out infinite;
+}
+@keyframes node-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.94) translateY(4px);
+  }
+}
+.node-pop {
+  animation: node-pop 260ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+/* Org builder: a top-down tree drawn with borders (each child draws its half of the bus). */
+.org-tree ul {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  padding-top: 22px;
+}
+.org-tree li {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 22px 8px 0;
+}
+.org-tree li::before,
+.org-tree li::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 50%;
+  width: 50%;
+  height: 22px;
+  border-top: 1.5px solid var(--border-strong, oklch(0 0 0 / 0.18));
+}
+.org-tree li::after {
+  right: auto;
+  left: 50%;
+  border-left: 1.5px solid var(--border-strong, oklch(0 0 0 / 0.18));
+}
+.org-tree li:only-child::before,
+.org-tree li:only-child::after {
+  display: none; /* the parent's drop line (ul ul::before) reaches it directly */
+}
+.org-tree li::before,
+.org-tree li::after,
+.org-tree ul ul::before {
+  pointer-events: none;
+}
+.org-tree li:only-child {
+  padding-top: 0;
+}
+.org-tree li:first-child::before,
+.org-tree li:last-child::after {
+  border-top: 0;
+}
+.org-tree li:last-child::before {
+  border-right: 1.5px solid var(--border-strong, oklch(0 0 0 / 0.18));
+  border-radius: 0 8px 0 0;
+}
+.org-tree li:first-child::after {
+  border-radius: 8px 0 0 0;
+}
+.org-tree ul ul::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 50%;
+  height: 22px;
+  border-left: 1.5px solid var(--border-strong, oklch(0 0 0 / 0.18));
+}
+.org-tree > ul {
+  padding-top: 0;
+}
+.org-tree > ul > li {
+  padding-top: 0;
+}
+.org-tree > ul > li::before,
+.org-tree > ul > li::after {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+  }
+}
+
+/* Formada.AI shared pieces (from the design's styles.css / stages.css). */
+@layer components {
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 500;
+    line-height: 1.45;
+    letter-spacing: 0.075em;
+    text-transform: uppercase;
+    color: var(--muted-foreground);
+  }
+  .tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    width: fit-content;
+    padding: 4px 9px;
+    border-radius: 999px;
+    background: var(--surface-strong);
+    color: var(--muted-foreground);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 500;
+    line-height: 1.4;
+    white-space: nowrap;
+  }
+  .tag-iris {
+    background: var(--soft-violet);
+    color: #5534a6;
+  }
+  .tag-positive {
+    background: var(--positive);
+    color: var(--positive-ink);
+  }
+  .tag-attention {
+    background: var(--attention);
+    color: var(--attention-ink);
+  }
+  .tag-critical {
+    background: var(--critical);
+    color: var(--critical-ink);
+  }
+  .panel {
+    border: 1px solid var(--border);
+    border-radius: 24px;
+    background: var(--card);
+  }
+  .panel-surface {
+    border: 1px solid var(--border);
+    border-radius: 24px;
+    background: var(--surface);
+  }
+  .heading-icon {
+    display: grid;
+    flex: 0 0 auto;
+    place-items: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 11px;
+    background: var(--soft-violet);
+    color: var(--iris);
+  }
+}
+
+/* Stepper steps are links when they can be opened (the design uses buttons). */
+@layer components {
+  .step-item a.step-link {
+    position: relative;
+    display: grid;
+    justify-items: center;
+    gap: 5px;
+    width: 100%;
+    padding: 8px 4px 9px;
+    border-radius: 14px;
+    color: var(--fd-secondary);
+    text-decoration: none;
+  }
+  .step-item a.step-link:hover {
+    background: var(--fd-surface);
+  }
+  .step-item button:disabled {
+    cursor: not-allowed;
+    opacity: 0.75;
+  }
+}

@@ -1,0 +1,13 @@
+key: sales_ops
+version: 1
+playbook: sales
+level: low
+title: { en: Sales operations, fr: Opérations des ventes }
+decisions_owned:
+  - Flag a product for quality review
+  - Adjust online product content
+  - Change return handling process
+decisions_forbidden:
+  - Change retail price
+  - Change discount policy
+kpi_notes: Return rate below 12% online and 6% in store; order fill rate above 97%

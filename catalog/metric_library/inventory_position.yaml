@@ -1,0 +1,21 @@
+archetype: inventory_position
+metrics:
+  - key: weeks_of_cover
+    template: weeks_of_cover
+    unit: "weeks"
+    higher_is_better: false
+    needs: [on_hand_units, style_colour]
+    name: { en: Weeks of cover, fr: Semaines de couverture }
+    why: { en: How many weeks the stock lasts at the current selling pace., fr: Nombre de semaines que dure le stock au rythme de vente actuel. }
+  - key: stock_cover_top_sellers
+    template: stock_cover_top_sellers
+    unit: "weeks"
+    higher_is_better: true
+    needs: [on_hand_units, sku]
+    name: { en: Cover on top sellers, fr: Couverture des meilleurs vendeurs }
+    why: { en: Best sellers about to run out., fr: Meilleurs vendeurs sur le point de manquer. }
+  - key: network_on_hand
+    template: null
+    needs: [on_hand_units]
+    name: { en: Network units on hand, fr: Unités en stock (réseau) }
+    why: { en: Total units across the network week by week., fr: Total des unités du réseau, semaine après semaine. }

@@ -1,0 +1,51 @@
+key: stock_cover_top_sellers
+version: 1
+playbook: purchasing
+description: >
+  Weeks of stock cover per style-colour for top sellers only (on hand / average weekly units sold
+  over the trailing 4 weeks). Low cover means a stockout is coming. Driver: weekly net sales.
+archetypes:
+  inv: inventory_position
+  sl: sales_line
+params:
+  weeks: { type: integer, default: 14, minimum: 14, maximum: 52 }
+  min_weekly_units: { type: integer, default: 25 }
+sql: |
+  with stock as (
+    select {{inv.style_colour}} as entity, {{inv.snapshot_date}}::date as week_end,
+           sum({{inv.on_hand_units}}) as on_hand
+    from ({{inv}}) as inv
+    where {{inv.snapshot_date}} > dateadd('week', -%(weeks)s, %(period_end)s::date)
+      and {{inv.snapshot_date}} <= %(period_end)s::date
+    group by 1, 2
+  ), sold as (
+    select inv.entity, inv.week_end, sum({{sl.units_sold}}) / 4.0 as weekly_units
+    from stock inv
+    join ({{sl}}) as sl
+      on {{sl.style_colour}} = inv.entity
+     and {{sl.sale_date}} > dateadd('day', -28, inv.week_end)
+     and {{sl.sale_date}} <= inv.week_end
+    group by 1, 2
+  )
+  select s.entity, dateadd('day', -6, s.week_end)::date as period_start,
+         round(s.on_hand / greatest(coalesce(d.weekly_units, 0), 0.5), 2) as value,
+         s.on_hand as n
+  from stock s left join sold d on d.entity = s.entity and d.week_end = s.week_end
+  where s.entity in (select entity from sold where week_end = (select max(week_end) from stock)
+                     and weekly_units >= %(min_weekly_units)s)
+  group by s.entity, s.week_end, s.on_hand, d.weekly_units
+  order by s.entity, period_start
+  limit %(row_cap)s
+drivers:
+  sales:
+    exposure: weekly_net_sales
+    sql: |
+      select {{sl.style_colour}} as entity,
+             round(sum({{sl.net_sales}}) / 4, 2) as weekly_net_sales,
+             round(sum({{sl.units_sold}}) / 4.0, 1) as weekly_units
+      from ({{sl}}) as sl
+      where {{sl.sale_date}} > dateadd('day', -28, %(period_end)s::date)
+        and {{sl.sale_date}} <= %(period_end)s::date
+      group by 1
+      order by 1
+      limit %(row_cap)s

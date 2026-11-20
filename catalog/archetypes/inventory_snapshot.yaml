@@ -1,0 +1,23 @@
+key: inventory_snapshot
+version: 1
+description: >
+  Stock of one item at one location on one snapshot date (item x location x date). Mapped
+  during onboarding onto the customer's inventory snapshot table, usually joined to its item and
+  location lists. The mapping source keeps real counts only: rows the customer's pipeline
+  carried forward or back-filled are filtered out there. Quantities can be in mixed units
+  (each, grams), so templates add up on_hand_value, not units, across items.
+columns:
+  snapshot_date: Date of the stock count (daily or weekly)
+  item_id: Item / SKU identifier
+  item_name: Item display name (business data, allowed in signals)
+  location_id: Location identifier
+  location_name: Location display name (business data, allowed in signals)
+  location_kind: "One of store | warehouse | non_sellable | other. non_sellable = quarantine, damaged, returns or hold locations; warehouse = sellable stock in a DC or bin"
+  vendor_name: Main supplier name, or NULL when the item has none
+  unit_of_measure: Unit the quantities are counted in (each, g, kg ...)
+  on_hand_units: Quantity physically at the location
+  available_units: On hand minus committed (free to sell or ship)
+  backordered_units: Quantity ordered from this location that it could not fill
+  on_order_units: Quantity on open purchase orders for this location
+  on_hand_value: Value of the stock on hand at cost, in the workspace currency
+  last_movement_date: Date the available quantity last changed (NULL when not tracked)

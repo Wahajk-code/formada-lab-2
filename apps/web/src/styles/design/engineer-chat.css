@@ -1,0 +1,151 @@
+/* From the Formada.AI design (.handover/Formada-AI-demo.zip); variables renamed to --fd-*. */
+.discovery-workbench > [data-engineer-chat] { margin-top: 16px; }
+
+.engineer-chat {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--fd-border);
+  border-radius: 19px;
+  background: var(--fd-white);
+  color: var(--ink);
+}
+
+.engineer-chat-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px 15px;
+  border-bottom: 1px solid var(--fd-border);
+}
+
+.engineer-chat-mark, .engineer-welcome-mark, .engineer-turn-mark {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  color: var(--iris);
+  background: var(--soft-violet);
+}
+
+.engineer-chat-mark { width: 40px; height: 40px; border-radius: 12px; }
+.engineer-chat-heading { flex: 1; min-width: 0; }
+.engineer-chat-heading h3 { margin: 0; font-size: 17px; line-height: 1.12; letter-spacing: -.02em; }
+.engineer-chat-heading > span { display: block; margin-top: 4px; color: var(--fd-secondary); font-size: 12px; line-height: 1.3; }
+.engineer-chat-internal { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 5px; color: var(--fd-secondary); font-size: 11px; font-weight: 750; white-space: nowrap; }
+.engineer-chat-internal::before { width: 6px; height: 6px; border-radius: 50%; background: var(--jade); content: ''; }
+.engineer-chat-view { margin-left: 3px; }
+
+.engineer-chat-scroll {
+  min-width: 0;
+  min-height: 140px;
+  max-height: 375px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable both-edges;
+}
+.engineer-chat-scroll:focus-visible { outline: 2px solid var(--iris); outline-offset: -3px; }
+.engineer-chat-log {
+  display: grid;
+  gap: 18px;
+  max-width: 790px;
+  padding: 22px clamp(10px, 3vw, 25px);
+  margin: 0 auto;
+  list-style: none;
+}
+
+.engineer-turn { display: flex; gap: 9px; min-width: 0; font-size: 14px; line-height: 1.6; }
+.engineer-turn article { min-width: 0; overflow-wrap: anywhere; }
+.engineer-turn-user { justify-content: flex-end; }
+.engineer-turn-user article { max-width: min(84%, 540px); padding: 9px 14px; border-radius: 16px 16px 4px 16px; background: var(--soft-violet); white-space: pre-wrap; }
+.engineer-turn-assistant article { padding-top: 4px; }
+.engineer-turn-assistant strong { font-size: 12px; font-weight: 800; }
+.engineer-turn-assistant p { margin: 3px 0 0; white-space: pre-wrap; }
+.engineer-turn-mark { width: 32px; height: 32px; border-radius: 10px; }
+
+.engineer-chat-welcome {
+  display: grid;
+  place-items: center;
+  width: min(100%, 750px);
+  margin: auto;
+  padding: 24px 12px 20px;
+  text-align: center;
+}
+.engineer-welcome-mark { width: 43px; height: 43px; margin-bottom: 9px; border-radius: 14px; }
+.engineer-chat-welcome h4 { margin: 0; font-size: clamp(19px, 3vw, 24px); line-height: 1.16; letter-spacing: -.028em; }
+.engineer-chat-welcome p { max-width: 445px; margin: 6px 0 0; color: var(--fd-secondary); font-size: 13px; line-height: 1.45; }
+.engineer-chat-starters { display: flex; justify-content: center; flex-wrap: wrap; gap: 6px; margin-top: 13px; }
+.engineer-chat-starters button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 7px;
+  min-height: 44px;
+  padding: 5px 9px;
+  border: 1px solid var(--fd-border);
+  border-radius: 10px;
+  background: var(--fd-surface);
+  color: var(--ink);
+  text-align: left;
+  font-size: 12px;
+  font-weight: 700;
+}
+.engineer-chat-starters button svg { flex: 0 0 auto; color: var(--iris); }
+.engineer-chat-starters button:hover { border-color: var(--iris); background: var(--soft-violet); }
+
+.engineer-chat-bottom { padding: 0 15px 14px; }
+.engineer-composer {
+  position: relative;
+  display: grid;
+  gap: 4px;
+  padding: 10px 10px 8px;
+  border: 1px solid var(--fd-border);
+  border-radius: 17px;
+  background: var(--fd-white);
+  box-shadow: 0 4px 15px #2118330A;
+}
+.engineer-composer:has(textarea:focus-visible) { outline: 2px solid var(--iris); outline-offset: 2px; }
+.engineer-composer textarea { display: block; width: 100%; min-height: 40px; max-height: 145px; padding: 1px 3px; border: 0; background: transparent; resize: vertical; font: inherit; font-size: 14px; line-height: 1.45; }
+.engineer-composer textarea:focus-visible { outline: 0; }
+.engineer-composer textarea::placeholder { color: var(--fd-secondary); opacity: 1; }
+.engineer-composer-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.engineer-send, .engineer-rerun { display: inline-flex; align-items: center; justify-content: center; border: 1px solid transparent; font-weight: 750; }
+.engineer-send { width: 44px; height: 44px; margin-left: auto; border-radius: 13px; background: var(--iris); color: var(--fd-white); }
+.engineer-send:hover:not(:disabled) { background: #573CA5; }
+.engineer-send:disabled { color: var(--fd-secondary); background: var(--fd-surface-alt); }
+.engineer-rerun { gap: 5px; min-height: 44px; padding: 0 8px; border-radius: 9px; background: transparent; color: var(--iris); font-size: 12px; }
+.engineer-rerun:hover:not(:disabled) { background: var(--soft-violet); }
+.engineer-rerun:disabled { color: var(--fd-secondary); }
+.engineer-chat-note { display: flex; align-items: center; justify-content: center; gap: 5px; margin: 7px 0 0; color: var(--fd-secondary); font-size: 11px; line-height: 1.35; }
+.engineer-chat-note svg { flex: 0 0 auto; }
+
+.engineer-chat-dialog {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100dvh;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  background: var(--fd-white);
+  color: var(--ink);
+}
+body:has(.engineer-chat-dialog[open]) { overflow: hidden; }
+.engineer-chat.is-expanded { height: 100%; border: 0; border-radius: 0; }
+.engineer-chat.is-expanded .engineer-chat-header { padding: 12px clamp(14px, 3vw, 38px); }
+.engineer-chat.is-expanded .engineer-chat-scroll { min-height: 0; max-height: none; }
+.engineer-chat.is-expanded .engineer-chat-scroll:has(.engineer-chat-welcome) { display: flex; }
+.engineer-chat.is-expanded .engineer-chat-log { padding-block: 30px; }
+.engineer-chat.is-expanded .engineer-chat-bottom { width: min(100%, 810px); margin-inline: auto; padding: 8px 15px max(16px, env(safe-area-inset-bottom)); }
+.engineer-chat.is-expanded .engineer-chat-welcome h4 { font-size: clamp(23px, 4vw, 33px); }
+
+@media (max-width: 490px) {
+  .engineer-chat-header { gap: 7px; padding-inline: 10px; }
+  .engineer-chat-heading h3 { font-size: 15px; }
+  .engineer-chat-internal { display: none; }
+  .engineer-chat-bottom { padding-inline: 10px; }
+}

@@ -1,0 +1,12 @@
+key: vp_sales
+version: 1
+playbook: sales
+level: mid
+title: { en: VP Sales, fr: VP Ventes }
+decisions_owned:
+  - Set discount policy
+  - Assign wholesale accounts
+  - Approve credit limit changes
+decisions_forbidden:
+  - Choose supplier for a PO
+kpi_notes: Net sales growth; wholesale retention; markdown rate below 18%

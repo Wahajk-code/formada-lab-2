@@ -1,0 +1,75 @@
+key: backordered_lines
+version: 2
+playbook: inventory
+description: >
+  Number of item lines with a backorder at each store, per week (last snapshot of the week).
+  A count, not a quantity, so mixed units (each, grams) do not distort it. Rising backorders
+  mean replenishment is not reaching the store. Driver: item lines the store carries now. v2 adds
+  the store's backordered items with the quantity short and what the store still has available,
+  so a card can name what to send.
+archetypes:
+  inv: inventory_snapshot
+params:
+  weeks: { type: integer, default: 20, minimum: 14, maximum: 52 }
+sql: |
+  with week_end as (
+    select date_trunc('week', {{inv.snapshot_date}})::date as week_start,
+           max({{inv.snapshot_date}}) as snap
+    from ({{inv}}) as inv
+    where {{inv.snapshot_date}} > dateadd('week', -%(weeks)s, %(period_end)s::date)
+      and {{inv.snapshot_date}} <= %(period_end)s::date
+    group by 1
+  )
+  select {{inv.location_name}} as entity, w.week_start as period_start,
+         sum(case when {{inv.backordered_units}} > 0 then 1 else 0 end) as value,
+         count(*) as n
+  from ({{inv}}) as inv
+  join week_end w on {{inv.snapshot_date}} = w.snap
+  where {{inv.location_kind}} = 'store'
+  group by 1, 2
+  order by 1, 2
+  limit %(row_cap)s
+drivers:
+  store_lines:
+    exposure: null
+    sql: |
+      with last_snap as (
+        select max({{inv.snapshot_date}}) as snap
+        from ({{inv}}) as inv
+        where {{inv.snapshot_date}} <= %(period_end)s::date
+      )
+      select {{inv.location_name}} as entity, count(*) as item_lines,
+             sum(case when {{inv.backordered_units}} > 0 then 1 else 0 end) as backordered_lines
+      from ({{inv}}) as inv
+      join last_snap l on {{inv.snapshot_date}} = l.snap
+      where {{inv.location_kind}} = 'store'
+      group by 1
+      order by 1
+      limit %(row_cap)s
+  top_items:
+    kind: top_items
+    exposure: null
+    sql: |
+      with last_snap as (
+        select max({{inv.snapshot_date}}) as snap
+        from ({{inv}}) as inv
+        where {{inv.snapshot_date}} <= %(period_end)s::date
+      ), items as (
+        select {{inv.location_name}} as entity, {{inv.item_name}} as item,
+               max({{inv.unit_of_measure}}) as unit,
+               sum({{inv.backordered_units}}) as backordered,
+               sum({{inv.available_units}}) as available_at_store
+        from ({{inv}}) as inv
+        join last_snap l on {{inv.snapshot_date}} = l.snap
+        where {{inv.location_kind}} = 'store' and {{inv.backordered_units}} > 0
+        group by 1, 2
+      ), ranked as (
+        select entity, item, unit, backordered, available_at_store,
+               row_number() over (partition by entity order by backordered desc) as rank
+        from items
+      )
+      select entity, item, unit, backordered, available_at_store
+      from ranked
+      where rank <= %(top_n)s
+      order by 1, 4 desc
+      limit %(row_cap)s

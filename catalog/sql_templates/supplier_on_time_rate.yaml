@@ -1,0 +1,37 @@
+key: supplier_on_time_rate
+version: 1
+playbook: purchasing
+description: >
+  Share of a supplier's order lines received on or before the promised date, per promise week.
+  Lines still open past their promised date count as late; lines not yet due are left out.
+  Driver: the supplier's open lines already past their promise.
+archetypes:
+  pol: purchase_order_line
+params:
+  weeks: { type: integer, default: 26, minimum: 14, maximum: 104 }
+sql: |
+  select {{pol.supplier_name}} as entity,
+         date_trunc('week', {{pol.promised_at}})::date as period_start,
+         round(100 * sum(case when {{pol.received_at}} is not null
+                               and {{pol.received_at}} <= {{pol.promised_at}} then 1 else 0 end)
+               / nullif(count(*), 0), 2) as value,
+         count(*) as n
+  from ({{pol}}) as pol
+  where {{pol.promised_at}} > dateadd('week', -%(weeks)s, %(period_end)s::date)
+    and {{pol.promised_at}} <= %(period_end)s::date
+  group by 1, 2
+  order by 1, 2
+  limit %(row_cap)s
+drivers:
+  late_open:
+    exposure: late_open_lines
+    sql: |
+      select {{pol.supplier_name}} as entity,
+             count(*) as late_open_lines,
+             sum({{pol.qty_ordered}}) as units_late
+      from ({{pol}}) as pol
+      where {{pol.received_at}} is null
+        and {{pol.promised_at}} < %(period_end)s::date
+      group by 1
+      order by 1
+      limit %(row_cap)s

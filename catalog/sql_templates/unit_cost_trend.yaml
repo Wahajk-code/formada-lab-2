@@ -1,0 +1,32 @@
+key: unit_cost_trend
+version: 2
+playbook: purchasing
+description: >
+  Average unit cost paid per supplier and order week (weighted by quantity). A rising cost is a supplier raising prices. Driver: the supplier's average weekly units ordered over 13 weeks.
+archetypes:
+  pl: purchase_order_line
+params:
+  weeks: { type: integer, default: 26, minimum: 14, maximum: 104 }
+sql: |
+  select {{pl.supplier_name}} as entity,
+         date_trunc('week', {{pl.ordered_at}})::date as period_start,
+         round(sum({{pl.unit_cost}} * {{pl.qty_ordered}}) / nullif(sum({{pl.qty_ordered}}), 0), 4) as value,
+         count(*) as n
+  from ({{pl}}) as pl
+  where {{pl.ordered_at}} > dateadd('week', -%(weeks)s, %(period_end)s::date)
+    and {{pl.ordered_at}} <= %(period_end)s::date
+  group by 1, 2
+  order by 1, 2
+  limit %(row_cap)s
+drivers:
+  units:
+    exposure: weekly_units
+    sql: |
+      select {{pl.supplier_name}} as entity,
+             round(sum({{pl.qty_ordered}}) / 13, 2) as weekly_units
+      from ({{pl}}) as pl
+      where {{pl.ordered_at}} > dateadd('week', -13, %(period_end)s::date)
+        and {{pl.ordered_at}} <= %(period_end)s::date
+      group by 1
+      order by 1
+      limit %(row_cap)s

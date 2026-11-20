@@ -1,0 +1,12 @@
+key: vp_operations
+version: 1
+playbook: inventory
+level: mid
+title: { en: VP Operations, fr: Vice-présidente des opérations }
+decisions_owned:
+  - Approve a write-off above the distribution centre's limit
+  - Set stock targets per location
+  - Ask for a stock review of a location
+decisions_forbidden:
+  - Change retail price
+kpi_notes: Stock value within plan per location; non-sellable stock below 2% of stock value

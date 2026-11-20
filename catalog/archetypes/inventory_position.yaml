@@ -1,0 +1,8 @@
+key: inventory_position
+version: 1
+description: Weekly on-hand stock per SKU (network level).
+columns:
+  snapshot_date: Week-ending snapshot date
+  sku: Item / SKU code
+  style_colour: Style and colour label (business data)
+  on_hand_units: Units on hand

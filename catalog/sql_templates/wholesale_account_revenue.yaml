@@ -1,0 +1,44 @@
+key: wholesale_account_revenue
+version: 1
+playbook: sales
+description: >
+  Trailing 28-day net revenue per wholesale account, at each week end. Smooths lumpy reorder
+  cadences so a missed reorder shows as a drop. Driver: last order date and days since.
+archetypes:
+  wl: wholesale_order_line
+params:
+  weeks: { type: integer, default: 26, minimum: 14, maximum: 52 }
+sql: |
+  with weeks as (
+    select distinct dateadd('day', 6, date_trunc('week', {{wl.order_date}}))::date as week_end
+    from ({{wl}}) as wl
+    where {{wl.order_date}} > dateadd('week', -%(weeks)s, %(period_end)s::date)
+      and {{wl.order_date}} <= %(period_end)s::date
+  ), accounts as (
+    select distinct {{wl.account_name}} as entity from ({{wl}}) as wl
+  )
+  select a.entity,
+         dateadd('day', -6, w.week_end)::date as period_start,
+         round(coalesce(sum(case when {{wl.order_date}} > dateadd('day', -28, w.week_end)
+                                  and {{wl.order_date}} <= w.week_end
+                                 then {{wl.net_amount}} end), 0), 2) as value,
+         count(distinct case when {{wl.order_date}} > dateadd('day', -28, w.week_end)
+                              and {{wl.order_date}} <= w.week_end then {{wl.order_date}} end) as n
+  from accounts a
+  cross join weeks w
+  left join ({{wl}}) as wl on {{wl.account_name}} = a.entity
+  group by a.entity, w.week_end
+  order by a.entity, period_start
+  limit %(row_cap)s
+drivers:
+  last_order:
+    exposure: null
+    sql: |
+      select {{wl.account_name}} as entity,
+             max({{wl.order_date}})::date as last_order_date,
+             datediff('day', max({{wl.order_date}}), %(period_end)s::date) as days_since_last_order
+      from ({{wl}}) as wl
+      where {{wl.order_date}} <= %(period_end)s::date
+      group by 1
+      order by 1
+      limit %(row_cap)s

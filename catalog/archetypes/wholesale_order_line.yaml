@@ -1,0 +1,9 @@
+key: wholesale_order_line
+version: 1
+description: Wholesale (B2B) order lines with the account they belong to.
+columns:
+  order_date: Order date
+  account_name: Wholesale account name (business data)
+  sku: Item / SKU code
+  qty: Units ordered
+  net_amount: Net amount, tenant currency

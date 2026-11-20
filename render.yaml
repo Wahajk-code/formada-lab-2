@@ -1,0 +1,41 @@
+# Render blueprint: one free web service for the API. The database is Neon (see DEPLOY.md).
+services:
+  - type: web
+    name: formada-lab-api
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: ENV
+        value: staging
+      - key: LAB_MODE
+        value: "true"
+      - key: LLM_BACKEND
+        value: anthropic
+      - key: ANTHROPIC_MODEL
+        value: claude-sonnet-5-5
+      - key: SECRETS_BACKEND
+        value: env
+      - key: LOG_JSON
+        value: "true"
+      - key: DIRECTORY_BACKEND
+        value: mock
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: DATABASE_SERVICE_URL
+        sync: false
+      - key: DATABASE_OWNER_URL
+        sync: false
+      - key: INTERNAL_SERVICE_TOKEN
+        generateValue: true
+      - key: AUTH_JWT_SECRET
+        generateValue: true
+      - key: APP_BASE_URL
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false

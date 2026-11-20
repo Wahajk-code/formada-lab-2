@@ -1,0 +1,11 @@
+key: purchase_order
+version: 1
+description: >
+  One purchase order header with its supplier, freight and total units. Mapped during onboarding
+  (often the PO header joined to suppliers, with line units summed).
+columns:
+  po_id: Purchase order identifier
+  supplier_name: Supplier display name (business data, allowed in signals)
+  ordered_at: Date the PO was placed
+  freight_cost: Freight cost of the PO, tenant currency
+  units_ordered: Total units on the PO

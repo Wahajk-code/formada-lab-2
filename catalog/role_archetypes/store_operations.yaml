@@ -1,0 +1,13 @@
+key: store_operations
+version: 1
+playbook: inventory
+level: low
+title: { en: Store operations manager, fr: Gestionnaire des opérations en magasin }
+decisions_owned:
+  - Escalate a replenishment delay to the distribution centre
+  - Request a transfer from a nearby store
+  - Adjust a store's display and backroom stock levels
+decisions_forbidden:
+  - Change retail price
+  - Choose supplier for a PO
+kpi_notes: Backordered lines per store near zero; every store within its fair share of store stock

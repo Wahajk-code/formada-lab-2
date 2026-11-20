@@ -1,0 +1,51 @@
+archetype: sales_line
+metrics:
+  - key: discount_rate
+    template: discount_rate
+    unit: "%"
+    higher_is_better: false
+    needs: [discount, gross_sales]
+    name: { en: Discount rate, fr: Taux de remise }
+    why: { en: How much of gross sales is given away., fr: Part des ventes brutes qui part en remises. }
+  - key: online_return_rate
+    template: online_return_rate
+    unit: "%"
+    higher_is_better: false
+    needs: [units_returned, units_sold, channel]
+    name: { en: Online return rate, fr: Taux de retour en ligne }
+    why: { en: Share of web sales sent back., fr: Part des ventes web retournées. }
+  - key: store_sales_share
+    template: store_sales_share
+    unit: "%"
+    higher_is_better: true
+    needs: [net_sales, location_name]
+    name: { en: Each store's share of sales, fr: Part des ventes par magasin }
+    why: { en: Who carries the revenue., fr: Qui porte le chiffre d'affaires. }
+  - key: average_selling_price
+    template: average_selling_price
+    unit: "$"
+    higher_is_better: true
+    needs: [net_sales, units_sold]
+    name: { en: Average selling price, fr: Prix de vente moyen }
+    why: { en: Net sales per unit sold., fr: Ventes nettes par unité vendue. }
+  - key: net_sales_trend
+    template: net_sales_trend
+    unit: "$"
+    higher_is_better: true
+    needs: [net_sales]
+    name: { en: Net sales trend by store, fr: Tendance des ventes nettes par magasin }
+    why: { en: Week-over-week movement of revenue., fr: Évolution hebdomadaire du chiffre d'affaires. }
+  - key: units_per_day
+    template: units_per_day
+    unit: "units"
+    higher_is_better: true
+    needs: [units_sold, sale_date]
+    name: { en: Units sold per day, fr: Unités vendues par jour }
+    why: { en: Selling pace per store., fr: Rythme de vente par magasin. }
+  - key: channel_mix
+    template: store_web_mix
+    unit: "%"
+    higher_is_better: true
+    needs: [net_sales, channel]
+    name: { en: Store vs web mix, fr: Répartition magasin vs web }
+    why: { en: How sales split between channels., fr: Répartition des ventes entre les canaux. }

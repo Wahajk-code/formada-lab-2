@@ -1,0 +1,12 @@
+key: ceo
+version: 2
+playbook: executive
+level: executive
+title: { en: Chief Executive Officer, fr: Président-directeur général }
+decisions_owned:
+  - Approve budgets and headcount
+  - Set company targets
+  - Ask for a review of a store's performance
+  - Reallocate marketing budget between stores
+decisions_forbidden: []
+kpi_notes: Gross margin, revenue growth, working capital; every store within 10% of its plan

@@ -1,0 +1,33 @@
+key: units_per_day
+version: 2
+playbook: sales
+description: >
+  Average units sold per trading day, per store and the web shop, per week. The selling pace behind the revenue. Driver: average weekly net sales over the last 4 weeks.
+archetypes:
+  sl: sales_line
+params:
+  weeks: { type: integer, default: 20, minimum: 14, maximum: 52 }
+sql: |
+  select {{sl.location_name}} as entity,
+         date_trunc('week', {{sl.sale_date}})::date as period_start,
+         round(sum({{sl.units_sold}}) / nullif(count(distinct {{sl.sale_date}}), 0), 2) as value,
+         count(distinct {{sl.sale_date}}) as n
+  from ({{sl}}) as sl
+  where {{sl.sale_date}} > dateadd('week', -%(weeks)s, %(period_end)s::date)
+    and {{sl.sale_date}} <= %(period_end)s::date
+  group by 1, 2
+  order by 1, 2
+  limit %(row_cap)s
+drivers:
+  net_sales:
+    exposure: null
+    sql: |
+      select {{sl.location_name}} as entity,
+             round(sum({{sl.net_sales}}) / 4, 2) as weekly_net_sales,
+             sum({{sl.units_sold}}) as units_4w
+      from ({{sl}}) as sl
+      where {{sl.sale_date}} > dateadd('week', -4, %(period_end)s::date)
+        and {{sl.sale_date}} <= %(period_end)s::date
+      group by 1
+      order by 1
+      limit %(row_cap)s

@@ -1,0 +1,54 @@
+archetype: inventory_snapshot
+metrics:
+  - key: stale_stock_value
+    template: stale_stock_value
+    unit: "$"
+    higher_is_better: false
+    needs: [on_hand_value, last_movement_date]
+    name: { en: Stale stock value, fr: Valeur du stock dormant }
+    why: { en: Cash tied up in stock that has not moved., fr: Argent immobilisé dans du stock qui ne bouge pas. }
+  - key: backordered_lines
+    template: backordered_lines
+    unit: "lines"
+    higher_is_better: false
+    needs: [backordered_units, location_kind]
+    name: { en: Backordered lines at stores, fr: Lignes en rupture de livraison en magasin }
+    why: { en: Items stores ordered and could not get., fr: Articles que les magasins ont commandés sans les recevoir. }
+  - key: out_of_stock_rate
+    template: out_of_stock_rate
+    unit: "%"
+    higher_is_better: false
+    needs: [available_units, location_kind]
+    name: { en: Out-of-stock rate, fr: Taux de rupture de stock }
+    why: { en: Share of a store's items with nothing to sell., fr: Part des articles d'un magasin sans rien à vendre. }
+  - key: non_sellable_value
+    template: non_sellable_value
+    unit: "$"
+    higher_is_better: false
+    needs: [on_hand_value, location_kind]
+    name: { en: Stock stuck in non-sellable locations, fr: Stock bloqué dans des emplacements non vendables }
+    why: { en: Quarantine, damaged and hold stock that cannot be sold., fr: Stock en quarantaine, endommagé ou retenu. }
+  - key: store_stock_share
+    template: store_stock_share
+    unit: "%"
+    higher_is_better: true
+    needs: [on_hand_value, location_kind]
+    name: { en: Share of stock sitting in stores, fr: Part du stock en magasin }
+    why: { en: Whether stock is where customers are., fr: Si le stock est là où se trouvent les clients. }
+  - key: inventory_value
+    template: total_inventory_value
+    unit: "$"
+    higher_is_better: false
+    needs: [on_hand_value]
+    name: { en: Total inventory value, fr: Valeur totale de l'inventaire }
+    why: { en: The size of the stock investment by location., fr: Taille de l'investissement en stock, par emplacement. }
+  - key: days_of_supply_by_store
+    template: null
+    needs: [on_hand_units, available_units]
+    name: { en: Days of supply by store, fr: Jours d'approvisionnement par magasin }
+    why: { en: How long a store's stock lasts at the current pace., fr: Durée du stock d'un magasin au rythme actuel. }
+  - key: on_order_coverage
+    template: null
+    needs: [on_order_units, available_units]
+    name: { en: Open orders vs stock position, fr: Commandes ouvertes vs stock }
+    why: { en: Whether orders in flight cover the gaps., fr: Si les commandes en cours comblent les manques. }

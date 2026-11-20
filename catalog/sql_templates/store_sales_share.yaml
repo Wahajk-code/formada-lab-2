@@ -1,0 +1,45 @@
+key: store_sales_share
+version: 1
+playbook: executive
+description: >
+  Each store's (and the web shop's) share of company net sales, per week. A share removes the
+  season that lifts every store at once, so a store losing traffic shows. Driver: the store's
+  4-week sales and the company's weekly net sales (exposure).
+archetypes:
+  sl: sales_line
+params:
+  weeks: { type: integer, default: 20, minimum: 14, maximum: 52 }
+sql: |
+  with weekly as (
+    select {{sl.location_name}} as entity,
+           date_trunc('week', {{sl.sale_date}})::date as period_start,
+           sum({{sl.net_sales}}) as net
+    from ({{sl}}) as sl
+    where {{sl.sale_date}} > dateadd('week', -%(weeks)s, %(period_end)s::date)
+      and {{sl.sale_date}} <= %(period_end)s::date
+    group by 1, 2
+  ), total as (
+    select period_start, sum(net) as net from weekly group by 1
+  )
+  select w.entity, w.period_start, round(100 * w.net / nullif(t.net, 0), 2) as value,
+         round(w.net, 0) as n
+  from weekly w join total t on t.period_start = w.period_start
+  order by 1, 2
+  limit %(row_cap)s
+drivers:
+  sales:
+    exposure: company_weekly_net_sales
+    sql: |
+      with recent as (
+        select {{sl.location_name}} as entity, sum({{sl.net_sales}}) as net,
+               sum({{sl.units_sold}}) as units
+        from ({{sl}}) as sl
+        where {{sl.sale_date}} > dateadd('week', -4, %(period_end)s::date)
+          and {{sl.sale_date}} <= %(period_end)s::date
+        group by 1
+      )
+      select entity, round(net, 2) as net_sales_4w, units as units_4w,
+             round((select sum(net) from recent) / 4, 2) as company_weekly_net_sales
+      from recent
+      order by 1
+      limit %(row_cap)s

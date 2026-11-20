@@ -1,0 +1,14 @@
+key: inventory_planner
+version: 1
+playbook: inventory
+level: low
+title: { en: Inventory planner, fr: Planificatrice des stocks }
+decisions_owned:
+  - Transfer stock between locations
+  - Pause replenishment for an item or location
+  - Propose a bundle or channel move for slow stock
+  - Request a markdown review from merchandising
+decisions_forbidden:
+  - Change retail price
+  - Choose supplier for a PO
+kpi_notes: Stale stock (no movement in 90 days) below 10% of stock value; no store above its fair share of store stock

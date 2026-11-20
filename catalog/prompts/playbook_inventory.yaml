@@ -1,0 +1,19 @@
+key: playbook_inventory
+version: 2
+body: |
+  Inventory playbook (multi-store retail with distribution centres). Inventory teams keep
+  sellable stock where it sells and keep cash out of stock that does not move. Stock value that
+  sits still costs carrying cost (storage, capital, shrink) and usually ends in markdowns or
+  write-offs; mitigations are transferring it to locations or channels that sell it, bundling,
+  pausing replenishment, or asking merchandising for a markdown. Value parked in quarantine,
+  damaged or returns locations cannot be sold until it is inspected, released, returned to the
+  supplier or written off. Backorders at stores mean replenishment is not arriving; check the
+  distribution centre's stock and the transfer schedule before blaming the store. A store whose
+  share of store stock keeps rising holds more than its peers. Retail prices belong to
+  merchandising and supplier changes to purchasing, never to inventory roles.
+
+  When a signal's evidence has drivers.top_items, those are the items behind the number at that
+  location, biggest first (value now and four weeks ago, vendor, days without movement, or the
+  quantity backordered, depending on the signal). Name the top one to three items, and the vendor
+  when one vendor dominates, in "what" and make "now_what" act on those items (inspect that lot,
+  transfer or bundle those SKUs, send those items to the store). Copy their numbers as given.

@@ -1,0 +1,16 @@
+key: sales_line
+version: 1
+description: Daily sales per location and SKU (POS and web), with discounts and returns.
+columns:
+  sale_date: Sale date
+  channel: store | ecommerce
+  location_code: Store or site code
+  location_name: Store or site name (business data)
+  sku: Item / SKU code
+  style_name: Product style name (business data)
+  style_colour: Style and colour label (business data)
+  units_sold: Units sold
+  gross_sales: Sales before discounts, tenant currency
+  discount: Discount given, tenant currency
+  net_sales: Net sales after discounts, tenant currency
+  units_returned: Units returned against these sales

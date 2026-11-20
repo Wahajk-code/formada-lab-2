@@ -1,0 +1,37 @@
+archetype: purchase_order_line
+metrics:
+  - key: supplier_fill_rate
+    template: supplier_fill_rate
+    unit: "%"
+    higher_is_better: true
+    needs: [qty_ordered, qty_received, received_at]
+    name: { en: Supplier fill rate, fr: Taux de remplissage fournisseur }
+    why: { en: Share of ordered units actually received., fr: Part des unités commandées réellement reçues. }
+  - key: supplier_lead_time
+    template: supplier_lead_time
+    unit: "days"
+    higher_is_better: false
+    needs: [ordered_at, received_at]
+    name: { en: Supplier lead time, fr: Délai fournisseur }
+    why: { en: Days from order to receipt., fr: Jours entre la commande et la réception. }
+  - key: supplier_on_time_rate
+    template: supplier_on_time_rate
+    unit: "%"
+    higher_is_better: true
+    needs: [promised_at, received_at]
+    name: { en: Supplier on-time rate, fr: Taux de livraison à temps }
+    why: { en: Share of lines received by the promised date., fr: Part des lignes reçues à la date promise. }
+  - key: open_po_value
+    template: open_po_value
+    unit: "$"
+    higher_is_better: false
+    needs: [qty_ordered, qty_received, unit_cost]
+    name: { en: Open purchase order value, fr: Valeur des commandes ouvertes }
+    why: { en: Money committed to goods not yet received., fr: Argent engagé pour des marchandises non reçues. }
+  - key: unit_cost_trend
+    template: unit_cost_trend
+    unit: "$"
+    higher_is_better: false
+    needs: [unit_cost, sku]
+    name: { en: Unit cost trend, fr: Tendance du coût unitaire }
+    why: { en: Whether suppliers are raising prices., fr: Si les fournisseurs augmentent leurs prix. }

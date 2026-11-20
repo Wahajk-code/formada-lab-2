@@ -1,0 +1,14 @@
+archetype: wholesale_order_line
+metrics:
+  - key: wholesale_account_revenue
+    template: wholesale_account_revenue
+    unit: "$"
+    higher_is_better: true
+    needs: [net_amount, account_name]
+    name: { en: Wholesale revenue by account, fr: Revenu de gros par compte }
+    why: { en: Which accounts are growing or slipping., fr: Quels comptes progressent ou reculent. }
+  - key: account_reorder_gap
+    template: null
+    needs: [order_date, account_name]
+    name: { en: Accounts overdue to reorder, fr: Comptes en retard de réapprovisionnement }
+    why: { en: Accounts that usually order and have gone quiet., fr: Comptes qui commandent d'habitude et se sont tus. }

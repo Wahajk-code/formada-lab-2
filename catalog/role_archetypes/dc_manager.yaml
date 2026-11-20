@@ -1,0 +1,14 @@
+key: dc_manager
+version: 1
+playbook: inventory
+level: low
+title: { en: Distribution centre manager, fr: Directrice du centre de distribution }
+decisions_owned:
+  - Inspect and release held stock
+  - Return defective stock to the supplier
+  - Write off damaged stock within the approved limit
+  - Reprioritise store replenishment picks
+decisions_forbidden:
+  - Change retail price
+  - Choose supplier for a PO
+kpi_notes: Quarantine and damaged stock cleared within 30 days; store replenishment shipped on schedule

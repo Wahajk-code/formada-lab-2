@@ -1,0 +1,8 @@
+key: playbook_purchasing
+version: 1
+body: |
+  Purchasing playbook (apparel retail). Purchasing keeps the right stock arriving on time at
+  the right landed cost. Late or slower suppliers create stockouts on A items, lost full-price
+  sales and expediting costs; mitigations are splitting orders to a secondary supplier,
+  expediting open POs, and adjusting quantities. Supplier-level changes (new suppliers, terms)
+  belong to the VP. Retail pricing belongs to merchandising, never to purchasing.

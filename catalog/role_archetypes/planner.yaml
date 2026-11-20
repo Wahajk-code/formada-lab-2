@@ -1,0 +1,12 @@
+key: planner
+version: 1
+playbook: purchasing
+level: low
+title: { en: Planner, fr: Planificateur }
+decisions_owned:
+  - Set reorder points
+  - Rebalance stock between stores
+decisions_forbidden:
+  - Change retail price
+  - Choose supplier for a PO
+kpi_notes: Stockouts on A items below 2%; overstock below 10 weeks of cover

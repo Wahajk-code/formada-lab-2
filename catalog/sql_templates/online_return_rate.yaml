@@ -1,0 +1,49 @@
+key: online_return_rate
+version: 1
+playbook: sales
+description: >
+  Web-shop return rate per style, as a rolling 4-week percentage of units sold, per week.
+  Driver: each style's average weekly online net sales (exposure for the impact estimate).
+archetypes:
+  sl: sales_line
+params:
+  weeks: { type: integer, default: 20, minimum: 14, maximum: 52 }
+  min_weekly_units: { type: integer, default: 5 }
+sql: |
+  with weekly as (
+    select {{sl.style_name}} as entity,
+           date_trunc('week', {{sl.sale_date}})::date as period_start,
+           sum({{sl.units_sold}}) as units,
+           sum({{sl.units_returned}}) as returned
+    from ({{sl}}) as sl
+    where {{sl.channel}} = 'ecommerce'
+      and {{sl.sale_date}} > dateadd('week', -%(weeks)s, %(period_end)s::date)
+      and {{sl.sale_date}} <= %(period_end)s::date
+    group by 1, 2
+  ), rolling as (
+    select entity, period_start,
+           sum(returned) over (partition by entity order by period_start rows between 3 preceding and current row) as r4,
+           sum(units) over (partition by entity order by period_start rows between 3 preceding and current row) as u4,
+           count(*) over (partition by entity order by period_start rows between 3 preceding and current row) as w4
+    from weekly
+  )
+  select entity, period_start, round(100 * r4 / u4, 2) as value, u4 as n
+  from rolling
+  where w4 = 4 and u4 >= 4 * %(min_weekly_units)s
+  group by entity, period_start, r4, u4
+  order by entity, period_start
+  limit %(row_cap)s
+drivers:
+  online_sales:
+    exposure: weekly_net_sales
+    sql: |
+      select {{sl.style_name}} as entity,
+             round(sum({{sl.net_sales}}) / 8, 2) as weekly_net_sales,
+             round(sum({{sl.units_sold}}) / 8, 1) as weekly_units
+      from ({{sl}}) as sl
+      where {{sl.channel}} = 'ecommerce'
+        and {{sl.sale_date}} > dateadd('week', -8, %(period_end)s::date)
+        and {{sl.sale_date}} <= %(period_end)s::date
+      group by 1
+      order by 1
+      limit %(row_cap)s

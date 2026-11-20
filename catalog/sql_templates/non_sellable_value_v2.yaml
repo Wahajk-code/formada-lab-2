@@ -1,0 +1,82 @@
+key: non_sellable_value
+version: 2
+playbook: inventory
+description: >
+  Stock value sitting in non-sellable locations (quarantine, damaged, returns, hold) per
+  location, per week (last snapshot of the week). Value parked there cannot be sold until it is
+  released, reworked or written off. Driver: item lines held there now. v2 adds the top items
+  behind each location's value (now and four weeks earlier, with the vendor), so a card can name
+  the lots to inspect.
+archetypes:
+  inv: inventory_snapshot
+params:
+  weeks: { type: integer, default: 20, minimum: 14, maximum: 52 }
+sql: |
+  with week_end as (
+    select date_trunc('week', {{inv.snapshot_date}})::date as week_start,
+           max({{inv.snapshot_date}}) as snap
+    from ({{inv}}) as inv
+    where {{inv.snapshot_date}} > dateadd('week', -%(weeks)s, %(period_end)s::date)
+      and {{inv.snapshot_date}} <= %(period_end)s::date
+    group by 1
+  )
+  select {{inv.location_name}} as entity, w.week_start as period_start,
+         round(sum({{inv.on_hand_value}}), 2) as value,
+         count(*) as n
+  from ({{inv}}) as inv
+  join week_end w on {{inv.snapshot_date}} = w.snap
+  where {{inv.location_kind}} = 'non_sellable'
+  group by 1, 2
+  order by 1, 2
+  limit %(row_cap)s
+drivers:
+  held_lines:
+    exposure: null
+    sql: |
+      with last_snap as (
+        select max({{inv.snapshot_date}}) as snap
+        from ({{inv}}) as inv
+        where {{inv.snapshot_date}} <= %(period_end)s::date
+      )
+      select {{inv.location_name}} as entity, count(*) as item_lines
+      from ({{inv}}) as inv
+      join last_snap l on {{inv.snapshot_date}} = l.snap
+      where {{inv.location_kind}} = 'non_sellable'
+      group by 1
+      order by 1
+      limit %(row_cap)s
+  top_items:
+    kind: top_items
+    exposure: null
+    sql: |
+      with snaps as (
+        select max(case when {{inv.snapshot_date}} <= %(period_end)s::date
+                        then {{inv.snapshot_date}} end) as now_snap,
+               max(case when {{inv.snapshot_date}} <= dateadd('day', -28, %(period_end)s::date)
+                        then {{inv.snapshot_date}} end) as before_snap
+        from ({{inv}}) as inv
+      ), items as (
+        select {{inv.location_name}} as entity, {{inv.item_name}} as item,
+               max({{inv.vendor_name}}) as vendor,
+               round(sum(case when {{inv.snapshot_date}} = s.now_snap
+                              then {{inv.on_hand_value}} else 0 end), 2) as value_now,
+               round(sum(case when {{inv.snapshot_date}} = s.before_snap
+                              then {{inv.on_hand_value}} else 0 end), 2) as value_4_weeks_ago
+        from ({{inv}}) as inv
+        cross join snaps s
+        where {{inv.location_kind}} = 'non_sellable'
+          and {{inv.snapshot_date}} in (s.now_snap, s.before_snap)
+        group by 1, 2
+      ), ranked as (
+        select entity, item, vendor, value_now, value_4_weeks_ago,
+               round(100 * value_now / nullif(sum(value_now) over (partition by entity), 0), 1)
+                 as share_of_location_pct,
+               row_number() over (partition by entity order by value_now desc) as rank
+        from items
+        where value_now > 0
+      )
+      select entity, item, vendor, value_now, value_4_weeks_ago, share_of_location_pct
+      from ranked
+      where rank <= %(top_n)s
+      order by 1, 4 desc
+      limit %(row_cap)s

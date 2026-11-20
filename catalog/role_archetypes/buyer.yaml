@@ -1,0 +1,14 @@
+key: buyer
+version: 1
+playbook: purchasing
+level: low
+title: { en: Buyer, fr: Acheteuse }
+decisions_owned:
+  - Choose supplier for a PO
+  - Split orders
+  - Expedite shipments
+  - Adjust PO quantities
+decisions_forbidden:
+  - Change retail price
+  - Add a new supplier
+kpi_notes: Stock cover above 4 weeks on A items; supplier on-time rate above 95%

@@ -1,0 +1,13 @@
+key: account_manager
+version: 1
+playbook: sales
+level: low
+title: { en: Account manager, fr: Gestionnaire de comptes }
+decisions_owned:
+  - Contact a wholesale account
+  - Offer a reorder incentive up to 5%
+  - Schedule a line review
+decisions_forbidden:
+  - Change credit limits
+  - Offer a discount above 5%
+kpi_notes: Wholesale account revenue retention above 90%; reorder cadence on top accounts
