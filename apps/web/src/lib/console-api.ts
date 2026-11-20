@@ -648,6 +648,30 @@ export type OnboardingGuide = {
       columns: { column: string; type: string; fill_pct: number | null; distinct: number | null }[];
     }[];
   };
+  /** Customer semantic views (names, formulas, comments; no rows). */
+  semantic_views?: {
+    view: string;
+    comment: string;
+    tables: {
+      table: string;
+      base_table: string | null;
+      comment: string;
+      measured?: Record<string, any> | null;
+      dimensions: { name: string; type: string | null; comment: string }[];
+      metrics: { name: string; expression: string; comment: string }[];
+    }[];
+    relationships: string[];
+  }[];
+  time_profile?: {
+    date_column: string | null;
+    entity_columns: string[];
+    cadence: any[];
+    breaks: any[];
+    filled_late: any[];
+    dates: { date: string; rows: number }[];
+  };
+  categories?: { column: string; values: { value: string; rows: number }[] }[];
+  key_overlaps?: { left: string; right: string; left_codes: number; right_codes: number; shared: number; pct_of_right: number }[];
   archetypes: { archetype: string; description: string; fields: { field: string; meaning: string }[] }[];
   role_archetypes: {
     key: string;

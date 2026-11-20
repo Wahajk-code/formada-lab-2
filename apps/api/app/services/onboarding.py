@@ -2074,8 +2074,55 @@ async def guide(tenant_id: uuid.UUID) -> dict[str, Any]:
                      for c in t.get("columns", [])]}
         for t in profile.get("tables", [])
     ]  # fmt: skip
+    def _clip(v: Any, n: int = 200) -> str:
+        return str(v or "")[:n]
+
+    views = [
+        {
+            "view": v.get("view"),
+            "comment": _clip(v.get("comment")),
+            "tables": [
+                {
+                    "table": t.get("table"),
+                    "base_table": t.get("base_table"),
+                    "comment": _clip(t.get("comment")),
+                    "measured": t.get("measured"),
+                    "dimensions": [
+                        {"name": d.get("name"), "type": d.get("type"),
+                         "comment": _clip(d.get("comment"), 140)}
+                        for d in t.get("dimensions", [])
+                    ],
+                    "metrics": [
+                        {"name": m.get("name"), "expression": _clip(m.get("expression"), 240),
+                         "comment": _clip(m.get("comment"), 160)}
+                        for m in t.get("metrics", [])
+                    ],
+                }
+                for t in v.get("tables", [])
+            ],
+            "relationships": v.get("relationships", []),
+        }
+        for v in profile.get("semantic_views", [])
+    ]  # fmt: skip
+    tp = profile.get("time_profile") or {}
     return {
         "profile": {"database": profile.get("database"), "tables": tables},
+        "semantic_views": views,
+        "time_profile": {
+            "date_column": tp.get("date_column"),
+            "entity_columns": tp.get("entity_columns", []),
+            "cadence": (tp.get("cadence") or {}).get("runs", []),
+            "breaks": tp.get("row_breaks", []),
+            "filled_late": tp.get("columns_filled_late", []),
+            "dates": [
+                {"date": r.get("date"), "rows": r.get("rows")} for r in tp.get("by_date", [])
+            ],
+        },
+        "categories": [
+            {"column": c.get("column"), "values": c.get("values", [])[:12]}
+            for c in profile.get("categories", [])
+        ],
+        "key_overlaps": profile.get("key_overlaps", []),
         "archetypes": await _archetypes(),
         "role_archetypes": await _role_archetypes(),
         "rule_settings": [

@@ -6,6 +6,8 @@ import { useMemo, useState, useTransition } from "react";
 
 import { askClient, askWorkspaceAI, lockDiscoverySection, reviseDiscoverySection } from "@/app/console-actions";
 import { EngineerChat } from "@/components/console/onboarding/engineer-chat";
+import { cn } from "@/lib/utils";
+import { FullGuide } from "@/components/console/onboarding/full-guide";
 import { Icon, type IconName } from "@/components/ui/icon";
 import type { AssistantTurn } from "@/lib/client-api";
 import type { OnboardingGuide } from "@/lib/console-api";
@@ -339,35 +341,29 @@ export function DiscoveryStage({
             </button>
           ))}
         </div>
-        <div className="discovery-section-head">
-          <h4>{SECTIONS[section]}</h4>
-          <div>
-            {locked && <Badge kind="positive">Locked</Badge>}
-            {can && (
-              <button type="button" className="btn btn-secondary" disabled={busy} onClick={toggleLock}>
-                <Icon name={locked ? "unlock" : "lock"} size={17} />
-                <span>{locked ? "Unlock section" : "Lock section"}</span>
-              </button>
-            )}
+        <div className={cn("lock-bar", locked && "locked")} role="group" aria-label={`${SECTIONS[section]} lock`}>
+          <span className="lock-bar-icon">
+            <Icon name={locked ? "lock" : "unlock"} size={20} />
+          </span>
+          <div className="lock-bar-text">
+            <strong>
+              {SECTIONS[section]}: {locked ? "Locked" : "Open for changes"}
+            </strong>
+            <p>
+              {locked
+                ? "A rerun will not change this section. Unlock it to edit it again."
+                : "When this section is right, lock it so a rerun cannot change it."}
+            </p>
           </div>
+          {can && (
+            <button type="button" className={cn("btn", locked ? "btn-secondary" : "btn-primary")} disabled={busy} onClick={toggleLock}>
+              <Icon name={locked ? "unlock" : "lock"} size={17} />
+              <span>{locked ? "Unlock section" : "Lock section"}</span>
+            </button>
+          )}
         </div>
 
-        {section === "guide" && (
-          <>
-            <p className="stage-helper">{out.summary}</p>
-            <div className="discovery-guide">
-            {tables.map((t) => (
-              <article key={t.table} className="discovery-review-item">
-                <code>{t.table}</code>
-                <p>{t.purpose}</p>
-                <small>
-                  One row per {t.grain.replace(/^(one( row)?( is| per)?\s+)/i, "")} · Key: <code>{t.keys.join(", ") || "none found"}</code>
-                </small>
-              </article>
-            ))}
-            </div>
-          </>
-        )}
+        {section === "guide" && <FullGuide out={out} guide={guide} />}
 
         {section === "relationships" && (
           <div className="discovery-relationships">
@@ -447,27 +443,6 @@ export function DiscoveryStage({
           </div>
         )}
 
-        <EngineerChat
-          scope={`Discovery / ${SECTIONS[section]}`}
-          turns={turns[section]}
-          pending={pending}
-          thinking={thinking}
-          emptyTitle="What would you like to review?"
-          intro="Ask a follow-up about this section. You can also rerun it with a correction."
-          placeholder="Ask a question or describe a correction…"
-          starters={STARTERS[section]}
-          rerun={
-            can
-              ? {
-                  disabled: locked || busy,
-                  locked,
-                  hint: locked ? "Section locked. You can still ask questions." : "Rerunning only applies your instructions to this section.",
-                }
-              : null
-          }
-          onAsk={ask}
-          onRerun={rerun}
-        />
       </section>
 
       <section className="stage-panel stage-content-panel source-coverage">
@@ -590,6 +565,29 @@ export function DiscoveryStage({
             </tbody>
           </table>
         </div>
+      </section>
+      <section className="stage-panel stage-content-panel discovery-assistant">
+        <EngineerChat
+          scope={`Discovery / ${SECTIONS[section]}`}
+          turns={turns[section]}
+          pending={pending}
+          thinking={thinking}
+          emptyTitle="What would you like to review?"
+          intro="Ask a follow-up about this section. You can also rerun it with a correction."
+          placeholder="Ask a question or describe a correction…"
+          starters={STARTERS[section]}
+          rerun={
+            can
+              ? {
+                  disabled: locked || busy,
+                  locked,
+                  hint: locked ? "Section locked. You can still ask questions." : "Rerunning only applies your instructions to this section.",
+                }
+              : null
+          }
+          onAsk={ask}
+          onRerun={rerun}
+        />
       </section>
     </>
   );

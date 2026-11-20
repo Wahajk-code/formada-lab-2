@@ -369,3 +369,48 @@
 .ai-instructions[open] > summary { border-bottom: 1px solid var(--fd-border); }
 .ai-instructions > .stage-panel { border: 0; border-radius: 0; box-shadow: none; margin: 0; }
 @media (prefers-reduced-motion: reduce) { .ai-instructions > summary > :last-child { transition: none; } }
+
+/* Lock bar: the lock control is a visible strip, not a small button */
+.lock-bar { display: flex; align-items: center; gap: 14px; padding: 14px 16px; margin-bottom: 14px; border: 1px solid var(--fd-border); border-radius: 16px; background: var(--fd-surface); }
+.lock-bar.locked { border-color: #bfe6d6; background: #eef9f4; }
+.lock-bar-icon { flex: none; display: grid; place-items: center; width: 40px; height: 40px; border-radius: 12px; background: var(--fd-white); border: 1px solid var(--fd-border); color: var(--iris); }
+.lock-bar.locked .lock-bar-icon { color: var(--jade); border-color: #bfe6d6; }
+.lock-bar-text { min-width: 0; flex: 1; }
+.lock-bar-text strong { display: block; font-size: 14px; }
+.lock-bar-text p { margin: 2px 0 0; color: var(--fd-secondary); font-size: 13px; }
+@media (max-width: 640px) { .lock-bar { flex-wrap: wrap; } .lock-bar .btn { width: 100%; justify-content: center; } }
+
+/* Full data guide: reference manual (built from the design's tables, tiles and badges) */
+.fg { display: grid; gap: 16px; min-width: 0; }
+.fg .source-totals { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 720px) { .fg .source-totals { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.fg-summary { margin: 0; font-size: 14px; line-height: 1.6; color: var(--ink); }
+.fg-jump { justify-self: start; flex-wrap: wrap; }
+.fg-area { display: grid; gap: 12px; padding: 18px; border: 1px solid var(--fd-border); border-radius: 20px; background: var(--fd-white); min-width: 0; }
+.fg-area > header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+.fg-area h5 { margin: 0; font-size: 20px; }
+.fg-area > header p { margin: 3px 0 0; color: var(--fd-secondary); font-size: 13px; }
+.fg-area h6 { margin: 8px 0 0; font-size: 14px; font-weight: 700; }
+.fg-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.fg-evidence { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: 13px; color: var(--fd-secondary); }
+.fg-evidence strong { color: var(--ink); }
+.fg-fold { border: 1px solid var(--fd-border); border-radius: 14px; background: var(--fd-surface); }
+.fg-fold > summary { display: flex; align-items: center; gap: 10px; padding: 11px 14px; cursor: pointer; list-style: none; font-size: 13.5px; }
+.fg-fold > summary::-webkit-details-marker { display: none; }
+.fg-fold > summary small { color: var(--fd-secondary); font-size: 12.5px; }
+.fg-fold > summary > :last-child { margin-left: auto; transition: transform .17s; }
+.fg-fold[open] > summary > :last-child { transform: rotate(180deg); }
+.fg-fold-body { padding: 0 14px 14px; min-width: 0; }
+.fg-fields { display: grid; gap: 8px; }
+.fg-fields .stage-table-scroll { max-height: 360px; overflow: auto; }
+.fg-low { color: #a35a00; font-weight: 700; }
+.fg-more { justify-self: start; border: 0; background: none; color: var(--iris); font-size: 13px; font-weight: 600; cursor: pointer; }
+.fg-issues { display: grid; gap: 8px; }
+.fg-issue { display: flex; justify-content: space-between; gap: 12px; padding: 12px 14px; border-radius: 12px; background: var(--fd-surface); font-size: 13px; }
+.fg-issue p { margin: 3px 0 0; color: var(--fd-secondary); overflow-wrap: anywhere; }
+.fg-bars { display: grid; gap: 6px; }
+.fg-bar { display: grid; grid-template-columns: minmax(120px, 220px) minmax(0, 1fr) auto; align-items: center; gap: 10px; font-size: 13px; }
+.fg-bar span { overflow-wrap: anywhere; }
+.fg-bar i { display: block; height: 8px; border-radius: 99px; background: linear-gradient(90deg, var(--jade) var(--share), var(--fd-border) var(--share)); }
+.discovery-assistant { padding-top: 6px; }
+.fg-issue .stage-badge { align-self: flex-start; flex: none; }
