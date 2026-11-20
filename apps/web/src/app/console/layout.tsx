@@ -46,9 +46,6 @@ export default async function ConsoleLayout({ children }: { children: React.Reac
             <Logo withName={false} />
           </span>
         </Link>
-        <span className="sb-label rounded-full border border-border px-2 py-0.5 text-[10px] font-semibold tracking-[0.12em] text-iris-ink uppercase">
-          Internal
-        </span>
       </div>
       <WorkspaceSwitcher workspaces={workspaces} />
       <div className="min-h-0 flex-1 overflow-y-auto">

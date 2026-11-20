@@ -725,6 +725,36 @@ export function StepView({
           )}
         </section>
 
+        {stepKey === "metrics" && !locked && (
+          <section className="stage-panel stage-content-panel">
+            <div className="stage-panel-heading">
+              <span className="stage-heading-icon">
+                <Icon name="message-circle" size={19} />
+              </span>
+              <div>
+                <h3>Customer suggestions</h3>
+                <p>Review what the customer would like their roles to track.</p>
+              </div>
+            </div>
+            {(() => {
+              const ideas = threads
+                .filter((t) => t.raised_by === "client" || t.messages.some((m) => m.side === "client"))
+                .map((t) => ({ id: t.id, text: t.messages.find((m) => m.side === "client")?.body ?? t.title, at: t.updated_at }));
+              return ideas.length ? (
+                <ul className="customer-ideas">
+                  {ideas.map((i) => (
+                    <li key={i.id}>
+                      <span>{i.text}</span>
+                      <time>{new Date(i.at).toLocaleDateString("en-CA", { day: "numeric", month: "short" })}</time>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="stage-helper">No suggestions from the customer yet.</p>
+              );
+            })()}
+          </section>
+        )}
         {ready && stepKey === "metrics" && (
           <WhoSeesWhat
             key={step!.id}

@@ -59,7 +59,7 @@
 .stage-complete > div { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 9px; flex: 1 1 200px; font-size: 12px; color: var(--fd-secondary); }
 .stage-complete > div > span:empty { display: none; }
 .stage-complete .btn { margin-left: auto; }
-.stage-form { display: grid; gap: 12px; }
+.stage-form { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
 .stage-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .stage-form label { display: grid; gap: 5px; min-width: 0; font-size: 12px; font-weight: 750; }
 .stage-form input, .stage-form textarea, .stage-form select { width: 100%; padding: 9px 10px; border: 1px solid var(--fd-border); border-radius: 9px; background: var(--fd-white); color: var(--ink); font: inherit; font-size: 13px; font-weight: 550; }
@@ -242,6 +242,11 @@
 .discovery-semantic { display: flex; align-items: start; justify-content: space-between; gap: 10px; padding: 12px 14px; margin-bottom: 14px; border-radius: 12px; background: var(--ice-blue); overflow-wrap: anywhere; }
 .discovery-semantic p { margin: 3px 0 0; color: var(--fd-secondary); font-size: 13px; }
 .discovery-semantic code { font-size: 12px; }
+.connection-advanced { margin: 4px 0 12px; }
+.connection-advanced > summary { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; color: var(--fd-secondary); font-size: 13px; font-weight: 600; list-style: none; }
+.connection-advanced > summary::-webkit-details-marker { display: none; }
+.connection-advanced[open] > summary svg { transform: rotate(180deg); }
+.connection-advanced .stage-fields { margin-top: 10px; }
 .snapshot-picker { margin-bottom: 14px; display: grid; gap: 10px; }
 .snapshot-head p { margin: 3px 0 0; color: var(--fd-secondary); font-size: 13px; }
 .snapshot-picker ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
@@ -339,7 +344,7 @@
   .stage-disclosure summary > svg:last-child, .stage-table-detail summary > svg:last-child { transition: none; }
 }
 
-.role-setup { margin-top: 4px; border: 1px solid var(--fd-border); border-radius: 16px; background: var(--fd-surface); }
+.role-setup { min-width: 0; margin-top: 4px; border: 1px solid var(--fd-border); border-radius: 16px; background: var(--fd-surface); }
 .role-setup summary { display: flex; align-items: center; gap: 9px; padding: 13px 16px; font-size: 14px; font-weight: 600; cursor: pointer; list-style: none; }
 .role-setup summary::-webkit-details-marker { display: none; }
 .role-setup summary > :last-child { margin-left: auto; transition: transform .17s; }
@@ -349,3 +354,7 @@
 .role-setup-code pre { margin: 0; padding: 14px 96px 14px 14px; overflow-x: auto; font: 400 12px/1.7 var(--fd-mono); white-space: pre; }
 .role-setup-code .btn { position: absolute; top: 10px; right: 10px; padding: 6px 11px; font-size: 12px; }
 @media (prefers-reduced-motion: reduce) { .role-setup summary > :last-child { transition: none; } }
+.customer-ideas { list-style: none; margin: 4px 0 0; padding: 0; display: grid; }
+.customer-ideas li { display: flex; justify-content: space-between; gap: 12px; padding: 12px 0; border-top: 1px solid var(--fd-border); font-size: 13px; }
+.customer-ideas li span { min-width: 0; overflow-wrap: anywhere; }
+.customer-ideas time { flex: none; color: var(--fd-secondary); font-size: 12px; }

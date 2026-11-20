@@ -624,7 +624,7 @@ function RoleSetupExample({ connection }: { connection: OnboardingState["connect
   const [copied, setCopied] = useState(false);
   const sql = roleSetupSql(connection);
   return (
-    <details className="role-setup">
+    <details className="role-setup" open>
       <summary>
         <Icon name="key" size={17} /> <span>View example role setup</span>
         <Icon name="chevron-down" size={16} />
@@ -684,19 +684,18 @@ export function ConnectStep({
       router.refresh();
     });
   }
+  // The design shows five fields; the rest sit under "Advanced" (still part of the same form).
   const fields: [string, string, string][] = [
-    ["account_identifier", "Account", c?.account_identifier ?? ""],
-    ["user_name", "Service user", c?.user_name ?? ""],
-    ["role_name", "Read-only role", c?.role_name ?? ""],
+    ["account_identifier", "Account identifier", c?.account_identifier ?? ""],
     ["warehouse_name", "Warehouse", c?.warehouse_name ?? ""],
     ["database_name", "Database", c?.database_name ?? ""],
-    ["schemas", "Schemas (comma separated)", c?.schemas.join(", ") ?? ""],
+    ["schemas", "Schemas", c?.schemas.join(", ") ?? ""],
+    ["role_name", "Read-only role", c?.role_name ?? ""],
+  ];
+  const advanced: [string, string, string][] = [
+    ["user_name", "Service user", c?.user_name ?? ""],
     ["secret_ref", "Vault key reference", c?.secret_ref ?? ""],
-    [
-      "monthly_credit_cap",
-      "Monthly credit cap",
-      String(c?.monthly_credit_cap ?? 25),
-    ],
+    ["monthly_credit_cap", "Monthly credit cap", String(c?.monthly_credit_cap ?? 25)],
   ];
   const passed = c?.status === "ok";
   return (
@@ -830,6 +829,20 @@ export function ConnectStep({
               </label>
             ))}
           </div>
+          <details className="connection-advanced">
+            <summary>
+              <span>Advanced settings</span>
+              <Icon name="chevron-down" size={16} />
+            </summary>
+            <div className="stage-fields">
+              {advanced.map(([name, label, value]) => (
+                <label key={name}>
+                  {label}
+                  <input name={name} defaultValue={value} autoComplete="off" disabled={!can} />
+                </label>
+              ))}
+            </div>
+          </details>
           <div className="stage-form-footer">
             <button type="submit" className="btn btn-primary" disabled={!can || pending}>
               {pending ? <LoaderCircle className="animate-spin" /> : <Icon name="activity" size={17} />}

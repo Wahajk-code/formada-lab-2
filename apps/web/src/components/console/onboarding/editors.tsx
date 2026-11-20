@@ -235,16 +235,16 @@ export function WhoSeesWhat({ state, step, editable }: { state: OnboardingState;
                       </span>
                     </label>
                     {c.on && (
-                      <div className="mt-1.5 flex flex-wrap items-center gap-3 pl-8 text-xs">
-                        <label className="flex items-center gap-1.5">
-                          Alert at
+                      <div className="mt-1.5 flex min-w-0 flex-col items-start gap-1.5 px-3 pb-2 text-xs">
+                        <label className="flex w-full min-w-0 items-center gap-1.5">
+                          <span className="shrink-0">Alert at</span>
                           <input
                             aria-label={`Alert level of ${m.name} for ${selected.title}`}
                             disabled={!editable}
                             value={c.alert}
                             onChange={(e) => set(m.key, selected.ref, { alert: e.target.value })}
                             placeholder="trend"
-                            className="w-28 rounded-lg border border-border bg-card px-2 py-1 tabular-nums"
+                            className="min-w-0 flex-1 rounded-lg border border-border bg-card px-2 py-1 tabular-nums"
                           />
                         </label>
                         <label className="flex items-center gap-1.5">
