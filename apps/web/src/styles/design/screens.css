@@ -101,7 +101,7 @@
 
 /* ---- Auth screens (Formada.AI design) ---- */
 .auth { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); min-height: 100dvh; padding: 36px; background: var(--fd-white, #fff); }
-.auth-panel { position: relative; display: flex; flex-direction: column; justify-content: space-between; gap: 40px; min-width: 0; padding: 64px; border-radius: 36px; background: #1a1b1e; color: #fff; overflow: hidden; }
+.auth-panel { position: relative; display: flex; flex-direction: column; justify-content: space-between; gap: 40px; min-width: 0; width: 100%; max-width: none; padding: 64px; border-radius: 36px; background: #1a1b1e; color: #fff; overflow: hidden; }
 .auth-brand { display: flex; align-items: center; gap: 12px; }
 .auth-pill { padding: 3px 10px; border: 1px solid #3a3b40; border-radius: 999px; color: #d7c9fb; font: 500 11px/1.6 var(--fd-mono); letter-spacing: .1em; text-transform: uppercase; }
 .auth-pitch { max-width: 470px; }
