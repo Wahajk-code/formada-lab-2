@@ -137,6 +137,7 @@ CORS_ORIGINS=["https://YOUR-APP.vercel.app"]
 
 # Web app (set in Vercel):
 # API_INTERNAL_URL=https://formada-lab-api.onrender.com
+# LAB_MODE=true
 """
 
 FILES[".gitignore"] = """\
@@ -198,7 +199,7 @@ Create an API key and **set a monthly spend limit** (for example $30) in the con
 
 ## 4. Vercel (web app)
 1. Import the repo, set the **root directory to `apps/web`**.
-2. Add `API_INTERNAL_URL` = your Render URL.
+2. Add `API_INTERNAL_URL` = your Render URL and `LAB_MODE` = `true` (shows the lab notice).
 3. Deploy, then put the Vercel URL into Render as `APP_BASE_URL` and `CORS_ORIGINS`.
 
 ## 5. Load the data and the reviewers (run on your own machine)
@@ -211,9 +212,11 @@ LAB_NAME="Customer (lab snapshot)" python lab/load_snapshot.py
 
 # the reviewers' logins
 DATABASE_OWNER_URL=<neon owner url> \\
-LAB_STAFF="ada@example.com:Ada:admin:long-password,bo@example.com:Bo:developer:another-password" \\
+LAB_STAFF="ada@example.com:Ada:admin:long-password,bo@example.com:Bo:admin:another-password" \\
 python lab/create_staff.py
 ```
+
+Give every reviewer the **admin** role: the developer role can read but cannot start or approve a step.
 
 ## 6. Use it
 Open the Vercel URL, sign in on the internal side, open the workspace, and go through Discovery,

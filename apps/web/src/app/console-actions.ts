@@ -16,7 +16,7 @@ import {
   STAFF_COOKIE,
 } from "@/lib/console-api";
 
-const COOKIE = { httpOnly: true, sameSite: "lax" as const, path: "/" };
+const COOKIE = { httpOnly: true, sameSite: "lax" as const, path: "/", secure: process.env.NODE_ENV === "production" };
 
 async function attempt<T>(fn: () => Promise<T>, paths: string[] = ["/console"]): Promise<Result<T>> {
   try {

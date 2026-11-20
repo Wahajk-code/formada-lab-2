@@ -18,6 +18,7 @@ const CRUMBS: Record<string, string> = {
   "/console/workspaces": "Workspace",
   "/console/config": "Config & rules",
   "/console/agents": "AI agents",
+  "/console/ai-lab": "AI lab",
   "/console/rules": "Rule review",
   "/console/team": "Team",
   "/console/account": "Account",
@@ -89,6 +90,12 @@ export default async function ConsoleLayout({ children }: { children: React.Reac
           <Breadcrumb root="Console" labels={CRUMBS} />
         </header>
         <main className="mx-auto w-full max-w-[90rem] flex-1 px-4 py-6 sm:px-6 sm:py-8 lg:px-10">
+          {process.env.LAB_MODE === "true" && (
+            <p role="status" className="mb-4 rounded-xl bg-surface px-4 py-2.5 text-xs text-muted-foreground">
+              <b className="text-foreground">Review lab.</b> A saved snapshot of a customer&apos;s warehouse, with Claude running live.
+              SQL you change is not run on Snowflake here, and there are no weekly runs or cards.
+            </p>
+          )}
           <div className="page-enter">{children}</div>
         </main>
       </SidebarFrame>

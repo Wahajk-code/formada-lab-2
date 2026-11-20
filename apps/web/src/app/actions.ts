@@ -7,7 +7,7 @@ import { redirect } from "next/navigation";
 import { type ActionDefaults, api, ApiError, SESSION_COOKIE, type Translation } from "@/lib/client-api";
 import { LOCALE_COOKIE, type Locale, locales } from "@/i18n/request";
 
-const COOKIE = { httpOnly: true, sameSite: "lax" as const, path: "/" };
+const COOKIE = { httpOnly: true, sameSite: "lax" as const, path: "/", secure: process.env.NODE_ENV === "production" };
 
 export async function signIn(formData: FormData) {
   const email = String(formData.get("email") ?? "");
