@@ -21,7 +21,6 @@ from app.core.db import global_tx, tenant_tx
 from app.core.errors import Conflict, Invalid, NotFound
 from app.core.logging import get_logger
 from app.core.settings import get_settings
-from app.domain import discovery_cards as dc
 from app.domain import onboarding as ob
 from app.domain import onboarding_flow as flow
 from app.domain import org_import, semantic
@@ -599,15 +598,6 @@ async def _latest_output(tenant_id: uuid.UUID, step: str) -> dict[str, Any]:
     return dict(rows[0].output or {}) if rows else {}
 
 
-async def _restore_sections(tenant_id: uuid.UUID, output: dict[str, Any]) -> dict[str, Any]:
-    """Put the team's locked cards back into a fresh scan (ADR 0030). Everything is locked unless
-    the team unlocked it, so a rerun can only change what was opened."""
-    previous = await _latest_output(tenant_id, "discovery")
-    if output.get("raw"):
-        return output
-    return dc.restore_locked(output, previous)
-
-
 async def _locked_items(
     tenant_id: uuid.UUID, step: str
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
@@ -702,8 +692,9 @@ async def _finish(
         step = row.step
     if step in ITEMS and "locked" not in output:
         output, checks = await _restore_locked(tenant_id, step, output, checks)
-    if step == "discovery" and "unlocked_cards" not in output:
-        output = await _restore_sections(tenant_id, output)
+    # Discovery: a whole new analysis is a fresh start. It ignores which cards were locked or
+    # unlocked and uses only the profile and the team's notes. Locks protect targeted changes
+    # (the per-tab rerun and the chat), not a full rerun.
     async with tenant_tx("service", tenant_id) as s:
         row = await s.get(OnboardingStep, step_id)
         assert row is not None

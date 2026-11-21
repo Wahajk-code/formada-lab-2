@@ -465,6 +465,7 @@ const STAGE_COPY: Partial<
       "Discover the Sales and Purchasing tables. Identify their keys, columns and the business questions they can answer.",
     start: "Start AI discovery",
     again: "Run discovery again",
+    note: "A new run starts fresh and ignores locks. Use the chat to change only some cards.",
   },
   mapping: {
     icon: "sparkles",
