@@ -519,3 +519,6 @@ header.card-hover { padding: 6px 8px; margin: -6px -8px; border-radius: 12px; }
 @keyframes chat-jump-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .chat-jump { animation: none; } }
 .engineer-clear { margin-left: auto; padding: 0; border: 0; background: none; color: var(--iris); font-size: 12px; font-weight: 600; cursor: pointer; }
+.fg-caveats { margin-top: 6px; font-size: 13px; }
+.fg-caveats ul { margin: 4px 0 0; padding-left: 18px; color: var(--fd-secondary); }
+.fg-caveats li { margin: 2px 0; }

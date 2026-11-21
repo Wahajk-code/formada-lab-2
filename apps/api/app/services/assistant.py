@@ -50,6 +50,8 @@ STYLE = [
     "(every table and field, dates, categories, the customer's semantic views), data_guide, "
     "links (the mapping), standard_model and ai_cost (what each step cost, and what runs cost "
     "after go-live). Look there before saying something is missing.",
+    "State only decisions and handling that the context states. If you suggest something the "
+    "context does not say, call it \"my suggestion\" so it is not mistaken for the guide.",
     "If the context really does not contain the answer, say so in one sentence and say who can "
     "answer.",
 ]

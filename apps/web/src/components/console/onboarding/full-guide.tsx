@@ -155,6 +155,13 @@ export function FullGuide({ out, guide, cards }: { out: any; guide: OnboardingGu
   }, [views]);
   const factTables = semTables.filter((t) => t.metrics.length);
   const dateCount = time?.dates.length ?? 0;
+  // The column that says where each stock row came from (for example AUDIT_SOURCE): a name that
+  // points at a source, with more than one value, and the most rows behind it.
+  const rowSources = useMemo(() => {
+    const rowsOf = (c: { values: { rows: number }[] }) => c.values.reduce((n, v) => n + v.rows, 0);
+    const found = (guide?.categories ?? []).filter((c) => /audit|source|origin|backfill|carried/i.test(c.column) && c.values.length > 1);
+    return found.sort((a, b) => rowsOf(b) - rowsOf(a)).slice(0, 1);
+  }, [guide]);
 
   const sections = AREAS.map((a) => {
     const base = tables.filter((t) => areaOf(t.table) === a.key);
@@ -307,7 +314,7 @@ export function FullGuide({ out, guide, cards }: { out: any; guide: OnboardingGu
                 rows={s.sem.map((t) => [
                   <b key="n">{plain(t.table)}</b>,
                   <code key="b">{t.base_table ?? "–"}</code>,
-                  t.metrics.length ? "Fact" : "Lookup",
+                  t.metrics.length ? "Fact" : /^fact_/i.test(short(t.base_table ?? "")) ? "Fact (no measures)" : "Lookup",
                   t.metrics.length || "–",
                   t.dimensions.length,
                   t.measured ? `${t.measured.first_date} to ${t.measured.last_date}` : <Chip key="m">Not measured</Chip>,
@@ -379,10 +386,10 @@ export function FullGuide({ out, guide, cards }: { out: any; guide: OnboardingGu
 
           {s.key === "inventory" && time && (
             <>
-              {(guide?.categories ?? []).length > 0 && (
+              {rowSources.length > 0 && (
                 <>
                   <h6>Which rows are real</h6>
-                  {(guide?.categories ?? []).slice(0, 2).map((c) => {
+                  {rowSources.map((c) => {
                     const total = c.values.reduce((n, v) => n + v.rows, 0) || 1;
                     return (
                       <div key={c.column} className="fg-bars">
@@ -406,7 +413,7 @@ export function FullGuide({ out, guide, cards }: { out: any; guide: OnboardingGu
                   <h6>Rows per snapshot date</h6>
                   <Grid
                     head={["From", "To", "Every", "Snapshots"]}
-                    rows={time.cadence.map((r: any) => [r.from, r.to, `${r.step_days} days`, <span key="c" className="stage-mono">{r.count}</span>])}
+                    rows={time.cadence.map((r: any) => [r.from, r.to, `${r.step_days} ${r.step_days === 1 ? "day" : "days"}`, <span key="c" className="stage-mono">{r.count}</span>])}
                   />
                   {time.breaks.length > 0 && (
                     <ul className="fg-evidence">
@@ -491,13 +498,17 @@ export function FullGuide({ out, guide, cards }: { out: any; guide: OnboardingGu
                   <p>{v.purpose}</p>
                   <p>
                     <b>One row is:</b> {v.grain}
-                    {(v.caveats ?? []).length > 0 && (
-                      <>
-                        {" "}
-                        <b>Cannot answer:</b> {(v.caveats as string[]).join(" ")}
-                      </>
-                    )}
                   </p>
+                  {(v.caveats ?? []).length > 0 && (
+                    <div className="fg-caveats">
+                      <b>Cannot answer</b>
+                      <ul>
+                        {(v.caveats as string[]).map((c) => (
+                          <li key={c}>{c}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                   {tools("view", v)}
                 </div>
                 <Chip tone={v.use_for === "map_from_view" ? "positive" : "neutral"}>{cap(words(v.use_for))}</Chip>
