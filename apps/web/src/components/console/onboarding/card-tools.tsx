@@ -11,18 +11,18 @@ import {
   LIST_FIELDS,
   type CardChangeView,
   type CardKind,
-  type CardSection,
   type CardSuggestion,
+  type Group,
 } from "@/lib/discovery-cards";
 import { cn } from "@/lib/utils";
 
 /** Everything a card needs to be edited, locked and named in the chat. Owned by the stage. */
 export type CardCtx = {
   can: boolean;
-  /** Ids locked on their own (a hand edit locks the card). */
-  cardLocked: Set<string>;
-  /** Sections locked as a whole: every card in them is locked. */
-  sectionLocked: Set<string>;
+  /** Everything is locked unless its id is in here (the team unlocked it). */
+  unlocked: Set<string>;
+  /** The named blocks of the guide: a heading's whole set of cards, by group id. */
+  groups: Record<string, Group>;
   mentioned: Set<string>;
   busy: boolean;
   editing: string | null;
@@ -40,34 +40,39 @@ export type CardCtx = {
 
 const show = (v: unknown) => (Array.isArray(v) ? v.join(", ") : String(v ?? ""));
 
-/** The card's state and tools. The lock chip is always visible; the tools fade in when the row or
- * card is hovered (or focused), floating outside the content. The parent needs `card-hover`. */
-export function CardBar({ id, section, ctx, join = false }: { id: string; section: CardSection; ctx: CardCtx; join?: boolean }) {
-  const bySection = ctx.sectionLocked.has(section);
-  const locked = bySection || ctx.cardLocked.has(id);
+/** The card's tools. Locked is the default and shows nothing; a card that is open for changes
+ * carries an amber chip. The tools fade in when the row or card is hovered (or focused), floating
+ * outside the content. The parent needs `card-hover`. */
+export function CardBar({ id, ctx, join = false }: { id: string; ctx: CardCtx; join?: boolean }) {
+  const open = ctx.unlocked.has(id);
   const asked = ctx.mentioned.has(id);
   return (
     <>
-      {locked && (
-        <span className="card-lock-chip" title={bySection ? "The whole section is locked" : "This card is locked"}>
-          <Icon name="lock" size={12} /> {bySection ? "Locked with section" : "Locked"}
+      {open && (
+        <span className="card-open-chip" title="Open for changes. Everything else stays locked.">
+          <Icon name="unlock" size={12} /> Open for changes
         </span>
       )}
       <div className={cn("card-bar card-float", ctx.editing === id && "is-pinned")} role="toolbar" aria-label="Card tools">
-        {ctx.can && (
-          <button type="button" disabled={locked || ctx.busy} onClick={() => ctx.setEditing(ctx.editing === id ? null : id)}>
-            <Icon name="edit" size={14} /> Edit
+        {ctx.can && !open && (
+          <button type="button" className="card-unlock" disabled={ctx.busy} onClick={() => ctx.onLock(id, false)}>
+            <Icon name="unlock" size={14} /> Unlock
           </button>
         )}
-        {ctx.can && !bySection && (
-          <button type="button" className={cn("card-lock-toggle", locked && "on")} disabled={ctx.busy} onClick={() => ctx.onLock(id, !locked)}>
-            <Icon name={locked ? "unlock" : "lock"} size={14} /> {locked ? "Unlock" : "Lock"}
-          </button>
-        )}
-        {ctx.can && join && (
-          <button type="button" className="card-remove" disabled={locked || ctx.busy} onClick={() => void ctx.onRemove(id)} title="Remove this relationship">
-            <Icon name="trash" size={14} /> Remove
-          </button>
+        {ctx.can && open && (
+          <>
+            <button type="button" disabled={ctx.busy} onClick={() => ctx.setEditing(ctx.editing === id ? null : id)}>
+              <Icon name="edit" size={14} /> Edit
+            </button>
+            <button type="button" className="card-lock-toggle" disabled={ctx.busy} onClick={() => ctx.onLock(id, true)}>
+              <Icon name="lock" size={14} /> Lock
+            </button>
+            {join && (
+              <button type="button" className="card-remove" disabled={ctx.busy} onClick={() => void ctx.onRemove(id)} title="Remove this relationship">
+                <Icon name="trash" size={14} /> Remove
+              </button>
+            )}
+          </>
         )}
         <button
           type="button"
@@ -76,6 +81,47 @@ export function CardBar({ id, section, ctx, join = false }: { id: string; sectio
           onClick={() => ctx.onMention(id)}
           aria-label={asked ? "In the chat" : "Add to chat"}
           title={asked ? "In the chat" : "Add to chat as context"}
+        >
+          @
+        </button>
+      </div>
+    </>
+  );
+}
+
+/** The tools of a whole block (a heading): unlock or lock every card in it, or hand the whole
+ * block to the chat as context. A chip says how many of its cards are open. */
+export function GroupBar({ gid, ctx }: { gid: string; ctx: CardCtx }) {
+  const group = ctx.groups[gid];
+  if (!group) return null;
+  const total = group.members.length;
+  const open = group.members.filter((m) => ctx.unlocked.has(m)).length;
+  const asked = ctx.mentioned.has(gid);
+  return (
+    <>
+      {open > 0 && (
+        <span className="card-open-chip" title="Cards in this block that are open for changes">
+          <Icon name="unlock" size={12} /> {open === total ? `All ${total} open` : `${open} of ${total} open`}
+        </span>
+      )}
+      <div className="card-bar card-float group-float" role="toolbar" aria-label={`${group.label}: block tools`}>
+        {ctx.can && (
+          <>
+            <button type="button" className="card-unlock" disabled={ctx.busy || open === total} onClick={() => ctx.onLock(gid, false)}>
+              <Icon name="unlock" size={14} /> Unlock all {total}
+            </button>
+            <button type="button" className="card-lock-toggle" disabled={ctx.busy || open === 0} onClick={() => ctx.onLock(gid, true)}>
+              <Icon name="lock" size={14} /> Lock all
+            </button>
+          </>
+        )}
+        <button
+          type="button"
+          className={cn("card-at", asked && "on")}
+          disabled={asked}
+          onClick={() => ctx.onMention(gid)}
+          aria-label={asked ? "In the chat" : `Add all ${total} cards to the chat`}
+          title={asked ? "In the chat" : `Add this whole block (${total} cards) to the chat as context`}
         >
           @
         </button>

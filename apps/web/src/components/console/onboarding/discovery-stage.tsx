@@ -11,13 +11,12 @@ import {
   askWorkspaceAI,
   editDiscoveryCard,
   lockDiscoveryCard,
-  lockDiscoverySection,
   removeDiscoveryJoin,
   reviseDiscoverySection,
   suggestCardChanges,
 } from "@/app/console-actions";
-import { AddJoin, CardBar, CardEditor, ChangeReview, type CardCtx } from "@/components/console/onboarding/card-tools";
-import { cardId, cardList, type CardSuggestion } from "@/lib/discovery-cards";
+import { AddJoin, CardBar, CardEditor, ChangeReview, GroupBar, type CardCtx } from "@/components/console/onboarding/card-tools";
+import { cardId, cardList, groupIndex, type CardSuggestion } from "@/lib/discovery-cards";
 import { EngineerChat } from "@/components/console/onboarding/engineer-chat";
 import { cn } from "@/lib/utils";
 import { FullGuide } from "@/components/console/onboarding/full-guide";
@@ -297,15 +296,20 @@ export function DiscoveryStage({
   const setSuggestion = (data: CardSuggestion | null) => setSaved(data ? { stepId, data } : null);
   const [applying, setApplying] = useState(false);
   const [busy, start] = useTransition();
-  const lockedSections: string[] = out.locked_sections ?? [];
-  const locked = lockedSections.includes(section);
+  const unlocked = new Set<string>(out.unlocked_cards ?? []);
+  const groups = useMemo(() => groupIndex(out), [out]);
   const cardRefs = useMemo(() => cardList(out), [out]);
-  const mentions = mentioned.filter((id) => cardRefs.some((c) => c.id === id));
+  // How many cards of each tab are open for changes (everything else is locked).
+  const openIn = (key: Section) => (groups[`g:section:${key}`]?.members ?? []).filter((m) => unlocked.has(m)).length;
+  const totalIn = (key: Section) => groups[`g:section:${key}`]?.members.length ?? 0;
+  const openCount = openIn(section);
+  const everythingLocked = openCount === 0;
+  const mentions = mentioned.filter((id) => id in groups || cardRefs.some((c) => c.id === id));
   const mention = (id: string) => setMentioned((cur) => (cur.includes(id) || cur.length >= 8 ? cur : [...cur, id]));
   const cards: CardCtx = {
     can,
-    cardLocked: new Set<string>(out.locked_cards ?? []),
-    sectionLocked: new Set<string>(lockedSections),
+    unlocked,
+    groups,
     mentioned: new Set(mentions),
     busy,
     editing,
@@ -450,9 +454,9 @@ export function DiscoveryStage({
     });
   };
 
-  const toggleLock = () =>
+  const setAll = (lock: boolean) =>
     start(async () => {
-      const res = await lockDiscoverySection(workspaceId, stepId, section, !locked);
+      const res = await lockDiscoveryCard(workspaceId, stepId, `g:section:${section}`, lock);
       if (res.ok) router.refresh();
     });
 
@@ -473,29 +477,41 @@ export function DiscoveryStage({
           {(Object.keys(SECTIONS) as Section[]).map((key) => (
             <button key={key} type="button" aria-pressed={section === key} onClick={() => setSection(key)}>
               {SECTIONS[key]}
-              {lockedSections.includes(key) && <Icon name="lock" size={13} />}
+              {openIn(key) > 0 && (
+                <span className="tab-open" title={`${openIn(key)} cards open for changes`}>
+                  {openIn(key)}
+                </span>
+              )}
             </button>
           ))}
         </div>
-        <div className={cn("lock-bar", locked && "locked")} role="group" aria-label={`${SECTIONS[section]} lock`}>
+        <div className={cn("lock-bar", everythingLocked ? "locked" : "open")} role="group" aria-label={`${SECTIONS[section]} locks`}>
           <span className="lock-bar-icon">
-            <Icon name={locked ? "lock" : "unlock"} size={20} />
+            <Icon name={everythingLocked ? "lock" : "unlock"} size={20} />
           </span>
           <div className="lock-bar-text">
             <strong>
-              {SECTIONS[section]}: {locked ? "Locked" : "Open for changes"}
+              {everythingLocked
+                ? `${SECTIONS[section]}: everything is locked`
+                : `${SECTIONS[section]}: ${openCount} of ${totalIn(section)} cards open for changes`}
             </strong>
             <p>
-              {locked
-                ? "A rerun will not change this section. Unlock it to edit it again."
-                : "When this section is right, lock it so a rerun cannot change it."}
+              {everythingLocked
+                ? "Unlock only the cards you want to change. Hover a row, a card or a heading for its tools."
+                : "Everything else stays locked, even when you rerun or ask the chat to change things."}
             </p>
           </div>
-          {can && (
-            <button type="button" className={cn("btn", locked ? "btn-secondary" : "btn-primary")} disabled={busy} onClick={toggleLock}>
-              <Icon name={locked ? "unlock" : "lock"} size={17} />
-              <span>{locked ? "Unlock section" : "Lock section"}</span>
-            </button>
+          {can && totalIn(section) > 0 && (
+            <div className="lock-bar-actions">
+              <button type="button" className="btn btn-secondary" disabled={busy || openCount === totalIn(section)} onClick={() => setAll(false)}>
+                <Icon name="unlock" size={16} />
+                <span>Unlock all</span>
+              </button>
+              <button type="button" className="btn btn-secondary" disabled={busy || everythingLocked} onClick={() => setAll(true)}>
+                <Icon name="lock" size={16} />
+                <span>Lock all</span>
+              </button>
+            </div>
           )}
         </div>
 
@@ -505,66 +521,87 @@ export function DiscoveryStage({
           <div className="discovery-relationships">
             <SchemaDiagram tables={tables} />
             {joinCards.length ? (
-              <ul className="join-list">
-                {joinCards.map(({ id, owner, item }) => (
-                  <li key={id} className={cn("discovery-review-item card-hover", (cards.sectionLocked.has("relationships") || cards.cardLocked.has(id)) && "is-locked")}>
-                    <div className="join-card-body">
-                      <div className="discovery-join">
-                        <code>
-                          {short(owner)}.{item.column}
-                        </code>
-                        <Icon name="arrow-right" size={15} />
-                        <code>
-                          {short(item.references_table)}.{item.references_column}
-                        </code>
-                      </div>
-                      <Badge kind={item.confidence === "high" ? "positive" : item.confidence === "low" ? "attention" : "neutral"}>{cap(item.confidence)} confidence</Badge>
+              (out.tables as any[])
+                .filter((t) => (t.joins ?? []).length)
+                .map((t) => (
+                  <div key={t.table} className="join-group">
+                    <div className="fg-head card-hover">
+                      <h6>
+                        {short(t.table)} relationships <small>{t.joins.length}</small>
+                      </h6>
+                      <GroupBar gid={`g:joins:${t.table}`} ctx={cards} />
                     </div>
-                    <CardBar id={id} section="relationships" ctx={cards} join />
-                    {editing === id && <CardEditor key={id} id={id} kind="join" item={item} ctx={cards} />}
-                  </li>
-                ))}
-              </ul>
+                    <ul className="join-list">
+                      {(t.joins as any[]).map((item) => {
+                        const id = cardId("join", item, t.table);
+                        return (
+                          <li key={id} className={cn("discovery-review-item card-hover", unlocked.has(id) && "is-open")}>
+                            <div className="join-card-body">
+                              <div className="discovery-join">
+                                <code>
+                                  {short(t.table)}.{item.column}
+                                </code>
+                                <Icon name="arrow-right" size={15} />
+                                <code>
+                                  {short(item.references_table)}.{item.references_column}
+                                </code>
+                              </div>
+                              <Badge kind={item.confidence === "high" ? "positive" : item.confidence === "low" ? "attention" : "neutral"}>{cap(item.confidence)} confidence</Badge>
+                            </div>
+                            <CardBar id={id} ctx={cards} join />
+                            {editing === id && <CardEditor key={id} id={id} kind="join" item={item} ctx={cards} />}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                ))
             ) : (
               <p className="stage-helper">No relationships were found between these tables.</p>
             )}
-            <AddJoin ctx={cards} disabled={busy || cards.sectionLocked.has("relationships")} />
+            <AddJoin ctx={cards} disabled={busy} />
           </div>
         )}
 
         {section === "gaps" && (
           <div className="discovery-gaps">
             {gaps.map((g) => (
-              <article key={g.family} className="discovery-review-item">
+              <article key={g.family} className={cn("discovery-review-item card-hover", unlocked.has(cardId("coverage", g)) && "is-open")}>
                 <div>
                   <strong>
                     {cap(words(g.family))} · {g.status}
                   </strong>
                   <p>{g.evidence}</p>
+                  <CardBar id={cardId("coverage", g)} ctx={cards} />
+                  {editing === cardId("coverage", g) && <CardEditor key={cardId("coverage", g)} id={cardId("coverage", g)} kind="coverage" item={g} ctx={cards} />}
                 </div>
                 <Badge kind="attention">{g.status === "missing" ? "Needs clarification" : "Partly covered"}</Badge>
               </article>
             ))}
             {!gaps.length && <p className="stage-helper">Every standard area has a source.</p>}
             {issues.map((q, i) => (
-              <article key={`i${i}`} className="discovery-review-item">
+              <article key={`i${i}`} className={cn("discovery-review-item card-hover", unlocked.has(cardId("issue", q)) && "is-open")}>
                 <div>
                   <strong>{q.title}</strong>
                   <p>{q.evidence}</p>
                   <p>
                     Impact: {q.impact} How we handle it: {q.suggested_handling}
                   </p>
+                  <CardBar id={cardId("issue", q)} ctx={cards} />
+                  {editing === cardId("issue", q) && <CardEditor key={cardId("issue", q)} id={cardId("issue", q)} kind="issue" item={q} ctx={cards} />}
                 </div>
                 <Badge kind={q.severity === "high" ? "attention" : "neutral"}>{cap(q.severity)}</Badge>
               </article>
             ))}
             {(out.questions as any[]).map((q, i) => (
-              <article key={`q${i}`} className="discovery-review-item">
+              <article key={`q${i}`} className={cn("discovery-review-item card-hover", unlocked.has(cardId("question", q)) && "is-open")}>
                 <div>
                   <strong>{q.question}</strong>
                   <p>
                     For {q.to}: {q.why}
                   </p>
+                  <CardBar id={cardId("question", q)} ctx={cards} />
+                  {editing === cardId("question", q) && <CardEditor key={cardId("question", q)} id={cardId("question", q)} kind="question" item={q} ctx={cards} />}
                 </div>
                 {q.to === "client" && can ? (
                   <button
@@ -726,18 +763,23 @@ export function DiscoveryStage({
           rerun={
             can
               ? {
-                  disabled: busy || (!mentions.length && locked),
-                  locked: !mentions.length && locked,
-                  label: mentions.length ? `Suggest changes to ${mentions.length} ${mentions.length === 1 ? "card" : "cards"}` : undefined,
+                  disabled: busy || (!mentions.length && everythingLocked),
+                  locked: !mentions.length && everythingLocked,
+                  label: mentions.length ? `Suggest changes to ${mentions.length} ${mentions.length === 1 ? "mention" : "mentions"}` : undefined,
                   hint: mentions.length
-                    ? "Only the cards you mention can change. Locked cards never do. You approve every change."
-                    : locked
-                      ? "Section locked. You can still ask questions."
-                      : "Rerunning only applies your instructions to this section. Mention cards with @ to change only those.",
+                    ? "Only the cards you mention can change, and only the unlocked ones. You approve every change."
+                    : everythingLocked
+                      ? "Everything in this tab is locked. You can still ask questions."
+                      : `A rerun changes only the ${openCount} open ${openCount === 1 ? "card" : "cards"}. Mention cards or blocks with @ to change only those.`,
                 }
               : null
           }
-          mentionables={cardRefs.map((c) => ({ id: c.id, label: c.label, kind: c.kind, locked: c.locked }))}
+          mentionables={[
+            ...Object.entries(groups)
+              .filter(([gid]) => !gid.startsWith("g:section:"))
+              .map(([gid, g]) => ({ id: gid, label: `${g.label} (${g.members.length})`, kind: "block", locked: !g.members.some((m) => unlocked.has(m)) })),
+            ...cardRefs.map((c) => ({ id: c.id, label: c.label, kind: c.kind, locked: c.locked })),
+          ]}
           mentions={mentions}
           onMentions={setMentioned}
           extra={suggestion ? <ChangeReview suggestion={suggestion} applying={applying} onApply={applySuggestion} onDiscard={() => setSuggestion(null)} /> : undefined}

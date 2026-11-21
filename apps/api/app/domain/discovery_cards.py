@@ -1,29 +1,34 @@
-"""Discovery cards: the unit the team edits, locks and mentions in the chat (pure rules, no I/O).
+"""Discovery cards: the unit the team edits, unlocks and mentions in the chat (pure rules, no I/O).
 
-A card is one entry of the discovery answer: a table, a join between two tables, a data-quality
-issue, a coverage area, a question or a semantic view. Each has a stable id, a short list of
-fields that may change, and belongs to one section. The rules here are what keep the AI in its
-lane:
-- only cards the team named (or edited by hand) can change;
-- a locked card (or a card in a locked section) never changes, even if the AI returns it changed;
-- only the listed fields can change, with checked values;
-- a change that does nothing is dropped;
-- a join the team removed stays removed, and a join the team locked or added stays, after a rerun.
+A card is one entry of the discovery answer: the overview, a table, a join between two tables, a
+data-quality issue, a coverage area, a question or a semantic view. A group is a named set of
+cards (everything in the Sales area, the Tables block, one table's relationships, a whole tab).
+
+The guide is mostly right, so edits are targeted. EVERYTHING IS LOCKED unless the team unlocks it:
+- only unlocked cards can change, by hand, by a rerun, or by the chat;
+- the chat changes only cards the team named (a group names all its cards);
+- only listed fields can change, with checked values; a change that does nothing is dropped;
+- locked cards are put back after any AI rerun, a join the team removed stays removed;
+- a hand edit locks the card again when it is saved.
 """
 
 import copy
 import re
 from typing import Any
 
-MAX_MENTIONS = 8  # cards one instruction may name
+MAX_MENTIONS = 8  # chips one instruction may carry (a group is one chip)
+MAX_EXPANDED = 60  # cards those chips may expand to
 LARGE_CHANGES = 6  # more changed fields than this needs a second confirmation
 MAX_TEXT = 2000
 MAX_ITEMS = 12
 
+OVERVIEW = "o:overview"
+
 # kind -> the fields that may change. Names that identify a card (table name, issue title,
 # question text, coverage family, view name) are fixed, so a card id never changes. A join is
-# identified by its two ends, so pointing it elsewhere gives it a new id (the lock follows).
+# identified by its two ends, so pointing it elsewhere gives it a new id (the unlock follows).
 FIELDS: dict[str, tuple[str, ...]] = {
+    "overview": ("summary", "cadence"),
     "table": ("purpose", "grain", "key_columns"),
     "join": ("confidence", "column", "references_table", "references_column"),
     "issue": ("severity", "evidence", "impact", "suggested_handling"),
@@ -40,6 +45,7 @@ ENUMS: dict[str, tuple[str, ...]] = {
     "confidence": ("high", "medium", "low"),
 }
 SECTION_OF = {
+    "overview": "guide",
     "table": "guide",
     "view": "guide",
     "join": "relationships",
@@ -54,7 +60,45 @@ LISTS = {
     "question": "questions",
     "view": "semantic_views",
 }
-PREFIX = {"table": "t", "join": "j", "issue": "i", "coverage": "c", "question": "q", "view": "v"}
+PREFIX = {
+    "overview": "o",
+    "table": "t",
+    "join": "j",
+    "issue": "i",
+    "coverage": "c",
+    "question": "q",
+    "view": "v",
+}
+# Kinds a rerun may have dropped that we put back when they are locked. A table is not put back:
+# tables come from the scan.
+RE_ADD = ("issue", "coverage", "question", "view")
+
+AREA_KEYS = ("sales", "inventory", "purchasing", "shared")
+AREA_LABEL = {
+    "sales": "Sales",
+    "inventory": "Inventory",
+    "purchasing": "Purchasing",
+    "shared": "Shared lookups",
+}
+AREA_FAMILIES = {
+    "sales": ("sales", "returns", "customers"),
+    "inventory": ("inventory", "transfers"),
+    "purchasing": ("purchase_orders", "receipts", "vendors"),
+    "shared": ("calendar",),
+}
+# Purchasing and inventory are tested first, so PURCHASE_ORDERS and TRANSFER_ORDERS are not sales.
+_AREA_MATCH = (
+    ("purchasing", re.compile(r"purchase|vendor|supplier|receipt|po_", re.I)),
+    ("inventory", re.compile(r"inventory|stock|item_?location|aggregateitem|transfer", re.I)),
+    (
+        "sales",
+        re.compile(
+            r"sales|order|invoice|cash|customer|channel|forecast|abandon|checkout|return"
+            r"|wholesale|revenue",
+            re.I,
+        ),
+    ),
+)
 
 
 def slug(text: str) -> str:
@@ -63,6 +107,14 @@ def slug(text: str) -> str:
 
 def _short(name: str) -> str:
     return str(name).split(".")[-1]
+
+
+def area_of(table: str) -> str:
+    name = _short(table)
+    for key, rx in _AREA_MATCH:
+        if rx.search(name):
+            return key
+    return "shared"
 
 
 def join_id(table: str, join: dict[str, Any]) -> str:
@@ -85,10 +137,14 @@ def _name(kind: str, item: dict[str, Any]) -> str:
 
 
 def card_id(kind: str, item: dict[str, Any]) -> str:
+    if kind == "overview":
+        return OVERVIEW
     return f"{PREFIX[kind]}:{_name(kind, item)}"
 
 
 def label(kind: str, item: dict[str, Any], owner: str = "") -> str:
+    if kind == "overview":
+        return "Overview"
     if kind in ("table", "view"):
         return _short(item.get(kind, ""))
     if kind == "join":
@@ -114,6 +170,8 @@ def joins(out: dict[str, Any]) -> dict[str, tuple[dict[str, Any], dict[str, Any]
 def index(out: dict[str, Any]) -> dict[str, tuple[str, dict[str, Any]]]:
     """Every card of a discovery answer: id -> (kind, the live entry)."""
     cards: dict[str, tuple[str, dict[str, Any]]] = {}
+    if "summary" in out:
+        cards[OVERVIEW] = ("overview", out)
     for kind, field in LISTS.items():
         for item in out.get(field) or []:
             cards.setdefault(card_id(kind, item), (kind, item))
@@ -136,17 +194,121 @@ def view(kind: str, item: dict[str, Any], owner: str = "") -> dict[str, Any]:
     return {**shown, **{f: item.get(f) for f in FIELDS[kind]}}
 
 
-def is_locked(out: dict[str, Any], cid: str) -> str | None:
-    """Why a card cannot change right now, or None when it can."""
+# ---- groups: a named set of cards (a heading's whole block) -----------------------------------
+
+
+def _issue_areas(tables: list[str], issue: dict[str, Any]) -> list[str]:
+    """The areas an issue touches, from the tables of the columns it names."""
+    names = {t.upper(): t for t in tables} | {_short(t).upper(): t for t in tables}
+    hit: list[str] = []
+    for col in issue.get("columns") or []:
+        table = str(col).rsplit(".", 1)[0]
+        found = names.get(table.upper()) or names.get(_short(table).upper())
+        if found and area_of(found) not in hit:
+            hit.append(area_of(found))
+    return hit
+
+
+def groups(out: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """Every group of the answer: id -> {"label", "members"}. Mirrored on the web side."""
+    found: dict[str, dict[str, Any]] = {}
+
+    def add(gid: str, name: str, members: list[str]) -> None:
+        if members:
+            found[gid] = {"label": name, "members": list(dict.fromkeys(members))}
+
+    tables = [str(t.get("table", "")) for t in out.get("tables") or []]
     cards = index(out)
-    if cid not in cards:
+    views = [card_id("view", v) for v in out.get("semantic_views") or []]
+    questions = [card_id("question", q) for q in out.get("questions") or []]
+    all_joins = list(joins(out))
+    add("g:overview", "Overview", [OVERVIEW] if OVERVIEW in cards else [])
+    placed: set[str] = set()
+    for key in AREA_KEYS:
+        name = AREA_LABEL[key]
+        tcards = [card_id("table", {"table": t}) for t in tables if area_of(t) == key]
+        cov = [
+            card_id("coverage", c)
+            for c in out.get("coverage") or []
+            if c.get("family") in AREA_FAMILIES[key]
+        ]
+        iss_items = [q for q in out.get("quality_issues") or [] if key in _issue_areas(tables, q)]
+        iss = [card_id("issue", q) for q in iss_items]
+        placed |= set(iss)
+        add(f"g:tables:{key}", f"{name} tables", tcards)
+        add(f"g:coverage:{key}", f"{name} coverage", cov)
+        add(f"g:issues:{key}", f"{name} data quality", iss)
+        add(f"g:area:{key}", f"{name}: the whole area", tcards + cov + iss)
+    add(
+        "g:issues:general",
+        "Data quality across areas",
+        [
+            card_id("issue", q)
+            for q in out.get("quality_issues") or []
+            if card_id("issue", q) not in placed
+        ],
+    )
+    add("g:views", "Customer semantic views", views)
+    add("g:questions", "Questions for the customer", questions)
+    add("g:joins", "All relationships", all_joins)
+    for t in out.get("tables") or []:
+        own = [join_id(str(t.get("table", "")), j) for j in t.get("joins") or []]
+        add(f"g:joins:{t.get('table', '')}", f"{_short(t.get('table', ''))} relationships", own)
+    add(
+        "g:section:guide",
+        "Data guide",
+        ([OVERVIEW] if OVERVIEW in cards else [])
+        + [card_id("table", {"table": t}) for t in tables]
+        + views,
+    )
+    add("g:section:relationships", "Relationships", all_joins)
+    add(
+        "g:section:gaps",
+        "Coverage gaps",
+        [card_id("coverage", c) for c in out.get("coverage") or []]
+        + [card_id("issue", q) for q in out.get("quality_issues") or []]
+        + questions,
+    )
+    return found
+
+
+def expand(out: dict[str, Any], ids: list[str]) -> list[str]:
+    """Card ids with every group replaced by its members (in order, no repeats). ValueError when a
+    group does not exist or the result is too large."""
+    known = groups(out)
+    result: list[str] = []
+    for i in ids:
+        if i.startswith("g:"):
+            if i not in known:
+                raise ValueError("that block is not in the proposal")
+            result.extend(known[i]["members"])
+        else:
+            result.append(i)
+    result = list(dict.fromkeys(result))
+    if len(result) > MAX_EXPANDED:
+        raise ValueError(f"that is {len(result)} cards: name fewer than {MAX_EXPANDED + 1}")
+    return result
+
+
+# ---- locks --------------------------------------------------------------------------------------
+
+
+def is_locked(out: dict[str, Any], cid: str) -> str | None:
+    """Why a card cannot change right now, or None when it can. Locked is the default."""
+    if cid not in index(out):
         return "this card is not in the proposal"
-    kind, _ = cards[cid]
-    if SECTION_OF[kind] in out.get("locked_sections", []):
-        return f"the {SECTION_OF[kind]} section is locked"
-    if cid in out.get("locked_cards", []):
-        return "this card is locked"
-    return None
+    if cid in set(out.get("unlocked_cards", [])):
+        return None
+    return "this card is locked; unlock it to change it"
+
+
+def set_locks(out: dict[str, Any], ids: list[str], lock: bool) -> dict[str, Any]:
+    """A copy of the answer with these cards locked or unlocked (groups are expanded)."""
+    data: dict[str, Any] = copy.deepcopy(out)
+    members = set(expand(data, ids)) & set(index(data))
+    held = set(data.get("unlocked_cards", []))
+    data["unlocked_cards"] = sorted(held - members if lock else held | members)
+    return data
 
 
 def coerce_value(field: str, value: Any) -> Any:
@@ -223,11 +385,11 @@ def apply_changes(
     """A copy of the answer with the allowed changes applied.
 
     Returns (new answer, changes applied with before and after, changes refused with a reason).
-    Each change is {"card_id", "field", "value"}. A locked card, a card in a locked section, a
-    field not on the card's list and a bad value are refused; a change that does nothing is
-    dropped. When lock is true (a hand edit) every card that changed is locked. Pointing a join
-    at other tables or columns gives it a new id; later changes to it in the same batch may still
-    use the old id, and the lock moves to the new one."""
+    Each change is {"card_id", "field", "value"}. A locked card, a field not on the card's list and
+    a bad value are refused; a change that does nothing is dropped. When lock is true (a hand
+    edit) every card that changed is locked again. Pointing a join at other tables or columns
+    gives it a new id; later changes to it in the same batch may still use the old id, and the
+    unlock moves to the new one."""
     data: dict[str, Any] = copy.deepcopy(out)
     applied: list[dict[str, Any]] = []
     refused: list[dict[str, str]] = []
@@ -275,8 +437,10 @@ def apply_changes(
             item[field] = value
             if new != cid:
                 alias[cid] = new
-                if cid in data.get("locked_cards", []):
-                    data["locked_cards"] = [new if c == cid else c for c in data["locked_cards"]]
+                if cid in data.get("unlocked_cards", []):
+                    data["unlocked_cards"] = [
+                        new if c == cid else c for c in data["unlocked_cards"]
+                    ]
             touched.add(new)
         else:
             item[field] = value
@@ -291,24 +455,23 @@ def apply_changes(
             }
         )
     if lock and touched:
-        data["locked_cards"] = sorted(set(data.get("locked_cards", [])) | {now(t) for t in touched})
+        final = {now(t) for t in touched}
+        data["unlocked_cards"] = sorted(set(data.get("unlocked_cards", [])) - final)
     return data, applied, refused
 
 
 def remove_join(out: dict[str, Any], cid: str) -> dict[str, Any]:
     """A copy of the answer without one join. The join stays removed after a rerun. ValueError with
     a plain reason when it cannot be removed (locked, or not there)."""
-    reason = is_locked(out, cid)
-    found = joins(out).get(cid)
-    if found is None:
+    if cid not in joins(out):
         raise ValueError("this relationship is not in the proposal")
-    if reason:
+    if reason := is_locked(out, cid):
         raise ValueError(reason)
     data: dict[str, Any] = copy.deepcopy(out)
     table, _ = joins(data)[cid]
     table["joins"] = [j for j in table["joins"] if join_id(str(table["table"]), j) != cid]
     data["removed_joins"] = sorted(set(data.get("removed_joins", [])) | {cid})
-    data["locked_cards"] = [c for c in data.get("locked_cards", []) if c != cid]
+    data["unlocked_cards"] = [c for c in data.get("unlocked_cards", []) if c != cid]
     return data
 
 
@@ -320,10 +483,9 @@ def add_join(
     references_column: str,
     profile: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], str]:
-    """A copy of the answer with a relationship the team declares, locked so a rerun keeps it.
-    Returns (answer, the new card id). ValueError with a plain reason when it does not fit."""
-    if "relationships" in out.get("locked_sections", []):
-        raise ValueError("the relationships section is locked")
+    """A copy of the answer with a relationship the team declares. It starts locked like every
+    card, so a rerun keeps it. Returns (answer, the new card id). ValueError with a plain reason
+    when it does not fit."""
     owner = _resolve_table(out, table)
     if owner is None:
         raise ValueError(f"{_short(table)} is not in the scan")
@@ -343,42 +505,45 @@ def add_join(
         raise ValueError("that relationship already exists")
     data: dict[str, Any] = copy.deepcopy(out)
     next(t for t in data["tables"] if t["table"] == owner).setdefault("joins", []).append(join)
-    data["locked_cards"] = sorted(set(data.get("locked_cards", [])) | {cid})
     data["removed_joins"] = [c for c in data.get("removed_joins", []) if c != cid]
     return data, cid
 
 
 def restore_locked(new: dict[str, Any], previous: dict[str, Any]) -> dict[str, Any]:
-    """Put the team's decisions back into a fresh or revised answer: locked cards field by field,
-    locked joins that the new answer lost, and joins the team removed stay removed. A locked card
-    whose table the new answer no longer has leaves the lock list."""
-    removed = list(previous.get("removed_joins", []))
-    keep = list(previous.get("locked_cards", []))
-    if not removed and not keep:
+    """Put every locked card back into a fresh or revised answer, field by field. Locked is the
+    default, so only cards the team unlocked may differ. A locked issue, coverage line, question
+    or view the new answer dropped comes back, a locked join too; joins the team removed stay
+    removed. The first answer (no previous one) has nothing to protect."""
+    old = index(previous)
+    if not old:
         return new
+    unlocked = set(previous.get("unlocked_cards", []))
+    removed = list(previous.get("removed_joins", []))
     data: dict[str, Any] = copy.deepcopy(new)
     for t in data.get("tables") or []:
         t["joins"] = [j for j in t.get("joins") or [] if join_id(str(t["table"]), j) not in removed]
     if removed:
         data["removed_joins"] = removed
-    old, old_joins = index(previous), joins(previous)
-    kept: list[str] = []
-    for cid in keep:
-        fresh = index(data)
-        if cid in old and cid in fresh and old[cid][0] == fresh[cid][0]:
-            for field in FIELDS[old[cid][0]]:
-                fresh[cid][1][field] = copy.deepcopy(old[cid][1].get(field))
-            kept.append(cid)
-        elif cid in old_joins and cid not in fresh:
-            # The team's locked join is missing from the new answer: put it back on its table.
+    fresh = index(data)
+    old_joins = joins(previous)
+    for cid, (kind, item) in old.items():
+        if cid in unlocked:
+            continue
+        if cid in fresh and fresh[cid][0] == kind:
+            for field in FIELDS[kind]:
+                fresh[cid][1][field] = copy.deepcopy(item.get(field))
+        elif kind in RE_ADD:
+            data.setdefault(LISTS[kind], []).append(copy.deepcopy(item))
+        elif kind == "join":
             owner_name = old_joins[cid][0].get("table")
             owner = next(
                 (t for t in data.get("tables") or [] if t.get("table") == owner_name), None
             )
             if owner is not None:
-                owner.setdefault("joins", []).append(copy.deepcopy(old_joins[cid][1]))
-                kept.append(cid)
-    return {**data, "locked_cards": kept}
+                owner.setdefault("joins", []).append(copy.deepcopy(item))
+    present = set(index(data))
+    data["unlocked_cards"] = sorted(c for c in unlocked if c in present)
+    return data
 
 
 def filter_ai_changes(

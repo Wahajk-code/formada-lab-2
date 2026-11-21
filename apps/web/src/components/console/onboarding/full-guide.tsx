@@ -3,9 +3,9 @@
 
 import { Fragment, useMemo, useState } from "react";
 
-import { CardBar, CardEditor, type CardCtx } from "@/components/console/onboarding/card-tools";
+import { CardBar, CardEditor, GroupBar, type CardCtx } from "@/components/console/onboarding/card-tools";
 import { Icon } from "@/components/ui/icon";
-import { cardId } from "@/lib/discovery-cards";
+import { areaOf, cardId, OVERVIEW } from "@/lib/discovery-cards";
 import type { OnboardingGuide } from "@/lib/console-api";
 import { cn } from "@/lib/utils";
 
@@ -29,23 +29,20 @@ const AREAS: { key: AreaKey; label: string; blurb: string; families: string[] }[
   { key: "purchasing", label: "Purchasing", blurb: "Purchase orders, vendors and what has been received.", families: ["purchase_orders", "receipts", "vendors"] },
   { key: "shared", label: "Shared lookups", blurb: "Calendar, locations and product groups every area uses.", families: ["calendar"] },
 ];
-const MATCH: Record<Exclude<AreaKey, "shared">, RegExp> = {
-  purchasing: /purchase|vendor|supplier|receipt|po_/i,
-  inventory: /inventory|stock|item_?location|aggregateitem|transfer/i,
-  sales: /sales|order|invoice|cash|customer|channel|forecast|abandon|checkout|return|wholesale|revenue/i,
-};
-/** Purchasing and inventory are tested first, so PURCHASE_ORDERS and TRANSFER_ORDERS are not read as sales. */
-function areaOf(table: string): AreaKey {
-  const name = short(table);
-  for (const k of ["purchasing", "inventory", "sales"] as const) if (MATCH[k].test(name)) return k;
-  return "shared";
-}
-
 const LINK = /^(\S+) \(\s*\[?\s*([\s\S]*?)\s*\]?\s*\) -> (\S+) \(\s*\[?\s*([\s\S]*?)\s*\]?\s*\)$/;
 const clean = (s: string) => s.replace(/["\s]+/g, " ").trim();
 
 function Chip({ tone = "neutral", children }: { tone?: "neutral" | "positive" | "attention" | "accent"; children: React.ReactNode }) {
   return <span className={cn("stage-badge", tone !== "neutral" && tone)}>{children}</span>;
+}
+/** A heading with the tools of its whole block (unlock or lock all, or give it to the chat). */
+function Head({ gid, cards, children }: { gid: string; cards?: CardCtx; children: React.ReactNode }) {
+  return (
+    <div className="fg-head card-hover">
+      {children}
+      {cards && <GroupBar gid={gid} ctx={cards} />}
+    </div>
+  );
 }
 const STATUS_TONE = { present: "positive", partial: "attention", missing: "attention" } as const;
 const SEVERITY_TONE = { high: "attention", medium: "accent", low: "neutral" } as const;
@@ -181,28 +178,28 @@ export function FullGuide({ out, guide, cards }: { out: any; guide: OnboardingGu
   const general = issues.filter((q) => !placed.has(q));
   const visible = sections.filter((s) => (open === "all" || open === s.key) && (s.base.length || s.sem.length));
 
-  const tools = (kind: "table" | "issue" | "coverage" | "question" | "view", item: any, section: "guide" | "gaps") => {
+  const tools = (kind: "table" | "issue" | "coverage" | "question" | "view", item: any) => {
     if (!cards) return null;
     const id = cardId(kind, item);
     return (
       <>
-        <CardBar id={id} section={section} ctx={cards} />
+        <CardBar id={id} ctx={cards} />
         {cards.editing === id && <CardEditor key={id} id={id} kind={kind} item={item} ctx={cards} />}
       </>
     );
   };
-  const isLocked = (kind: "table" | "issue" | "coverage" | "question" | "view", item: any, section: "guide" | "gaps") =>
-    Boolean(cards && (cards.sectionLocked.has(section) || cards.cardLocked.has(cardId(kind, item))));
+  const isOpen = (kind: "table" | "issue" | "coverage" | "question" | "view", item: any) =>
+    Boolean(cards?.unlocked.has(cardId(kind, item)));
 
   const issueRow = (q: any, i: number) => (
-    <article key={i} className={cn("fg-issue card-hover", isLocked("issue", q, "gaps") && "is-locked")}>
+    <article key={i} className={cn("fg-issue card-hover", isOpen("issue", q) && "is-open")}>
       <div>
         <strong>{q.title}</strong>
         <p>{q.evidence}</p>
         <p>
           <b>Impact:</b> {q.impact} <b>How we handle it:</b> {q.suggested_handling}
         </p>
-        {tools("issue", q, "gaps")}
+        {tools("issue", q)}
       </div>
       <Chip tone={SEVERITY_TONE[q.severity as keyof typeof SEVERITY_TONE]}>{cap(q.severity)}</Chip>
     </article>
@@ -210,7 +207,11 @@ export function FullGuide({ out, guide, cards }: { out: any; guide: OnboardingGu
 
   return (
     <div className="fg">
-      <p className="stage-helper fg-summary">{out.summary}</p>
+      <div className={cn("fg-overview card-hover", cards?.unlocked.has(OVERVIEW) && "is-open")}>
+        <p className="stage-helper fg-summary">{out.summary}</p>
+        {cards && <CardBar id={OVERVIEW} ctx={cards} />}
+        {cards?.editing === OVERVIEW && <CardEditor id={OVERVIEW} kind="overview" item={out} ctx={cards} />}
+      </div>
       <dl className="source-totals">
         <div>
           <dt>Tables profiled</dt>
@@ -245,7 +246,7 @@ export function FullGuide({ out, guide, cards }: { out: any; guide: OnboardingGu
 
       {visible.map((s) => (
         <section key={s.key} className="fg-area" aria-labelledby={`fg-${s.key}`}>
-          <header>
+          <header className="card-hover">
             <div>
               <h5 id={`fg-${s.key}`}>{s.label}</h5>
               <p>{s.blurb}</p>
@@ -257,14 +258,20 @@ export function FullGuide({ out, guide, cards }: { out: any; guide: OnboardingGu
                 </Chip>
               ))}
             </div>
-          </header>
+          {cards && <GroupBar gid={`g:area:${s.key}`} ctx={cards} />}</header>
+
+          {s.coverage.length > 0 && cards && (
+            <Head gid={`g:coverage:${s.key}`} cards={cards}>
+              <h6>Coverage</h6>
+            </Head>
+          )}
 
           {s.coverage.length > 0 && (
             <ul className="fg-evidence">
               {s.coverage.map((c) => (
-                <li key={c.family} className={cn("card-hover", isLocked("coverage", c, "gaps") && "is-locked")}>
+                <li key={c.family} className={cn("card-hover", isOpen("coverage", c) && "is-open")}>
                   <strong>{plain(c.family)}</strong> {c.evidence}
-                  {tools("coverage", c, "gaps")}
+                  {tools("coverage", c)}
                 </li>
               ))}
             </ul>
@@ -272,11 +279,13 @@ export function FullGuide({ out, guide, cards }: { out: any; guide: OnboardingGu
 
           {s.base.length > 0 && (
             <>
-              <h6>Tables</h6>
+              <Head gid={`g:tables:${s.key}`} cards={cards}>
+                <h6>Tables</h6>
+              </Head>
               <Grid
                 head={cards ? ["Table", "Kind", "Rows", "Fields", "One row is", "Key", "Card tools"] : ["Table", "Kind", "Rows", "Fields", "One row is", "Key"]}
                 hover={Boolean(cards)}
-                after={(i) => (cards && cards.editing === cardId("table", s.base[i]) ? tools("table", s.base[i], "guide") : null)}
+                after={(i) => (cards && cards.editing === cardId("table", s.base[i]) ? tools("table", s.base[i]) : null)}
                 rows={s.base.map((t) => [
                   <code key="t">{t.table}</code>,
                   cap(t.kind),
@@ -284,7 +293,7 @@ export function FullGuide({ out, guide, cards }: { out: any; guide: OnboardingGu
                   <span key="c" className="stage-mono">{profiles[t.table]?.columns.length ?? "–"}</span>,
                   t.grain.replace(/^(one( row)?( is| per)?\s+)/i, ""),
                   <code key="k">{(t.key_columns ?? []).join(", ") || "none found"}</code>,
-                  ...(cards ? [<CardBar key="card" id={cardId("table", t)} section="guide" ctx={cards} />] : []),
+                  ...(cards ? [<CardBar key="card" id={cardId("table", t)} ctx={cards} />] : []),
                 ])}
               />
             </>
@@ -420,7 +429,9 @@ export function FullGuide({ out, guide, cards }: { out: any; guide: OnboardingGu
 
           {s.issues.length > 0 && (
             <>
-              <h6>Data quality in {s.label.toLowerCase()}</h6>
+              <Head gid={`g:issues:${s.key}`} cards={cards}>
+                <h6>Data quality in {s.label.toLowerCase()}</h6>
+              </Head>
               <div className="fg-issues">{s.issues.map(issueRow)}</div>
             </>
           )}
@@ -429,12 +440,12 @@ export function FullGuide({ out, guide, cards }: { out: any; guide: OnboardingGu
 
       {open === "all" && general.length > 0 && (
         <section className="fg-area">
-          <header>
+          <header className="card-hover">
             <div>
               <h5>Across areas</h5>
               <p>Data quality findings that are not tied to one area.</p>
             </div>
-          </header>
+          {cards && <GroupBar gid="g:issues:general" ctx={cards} />}</header>
           <div className="fg-issues">{general.map(issueRow)}</div>
         </section>
       )}
@@ -466,15 +477,15 @@ export function FullGuide({ out, guide, cards }: { out: any; guide: OnboardingGu
 
       {open === "all" && (out.semantic_views ?? []).length > 0 && (
         <section className="fg-area">
-          <header>
+          <header className="card-hover">
             <div>
               <h5>Customer semantic views</h5>
               <p>Views the customer already keeps. They name the measures and say how tables join.</p>
             </div>
-          </header>
+          {cards && <GroupBar gid="g:views" ctx={cards} />}</header>
           <div className="fg-issues">
             {(out.semantic_views as any[]).map((v) => (
-              <article key={v.view} className={cn("fg-issue card-hover", isLocked("view", v, "guide") && "is-locked")}>
+              <article key={v.view} className={cn("fg-issue card-hover", isOpen("view", v) && "is-open")}>
                 <div>
                   <strong>{v.view}</strong>
                   <p>{v.purpose}</p>
@@ -487,7 +498,7 @@ export function FullGuide({ out, guide, cards }: { out: any; guide: OnboardingGu
                       </>
                     )}
                   </p>
-                  {tools("view", v, "guide")}
+                  {tools("view", v)}
                 </div>
                 <Chip tone={v.use_for === "map_from_view" ? "positive" : "neutral"}>{cap(words(v.use_for))}</Chip>
               </article>
@@ -498,21 +509,21 @@ export function FullGuide({ out, guide, cards }: { out: any; guide: OnboardingGu
 
       {open === "all" && (out.questions ?? []).length > 0 && (
         <section className="fg-area">
-          <header>
+          <header className="card-hover">
             <div>
               <h5>Questions for the customer</h5>
               <p>Open items the guide could not settle from the data alone.</p>
             </div>
-          </header>
+          {cards && <GroupBar gid="g:questions" ctx={cards} />}</header>
           <Grid
             head={cards ? ["Question", "Why it matters", "For", "Card tools"] : ["Question", "Why it matters", "For"]}
             hover={Boolean(cards)}
-            after={(i) => (cards && cards.editing === cardId("question", (out.questions as any[])[i]) ? tools("question", (out.questions as any[])[i], "gaps") : null)}
+            after={(i) => (cards && cards.editing === cardId("question", (out.questions as any[])[i]) ? tools("question", (out.questions as any[])[i]) : null)}
             rows={(out.questions as any[]).map((q) => [
               q.question,
               q.why,
               q.to === "team" ? "The team" : "The customer",
-              ...(cards ? [<CardBar key="card" id={cardId("question", q)} section="gaps" ctx={cards} />] : []),
+              ...(cards ? [<CardBar key="card" id={cardId("question", q)} ctx={cards} />] : []),
             ])}
           />
         </section>

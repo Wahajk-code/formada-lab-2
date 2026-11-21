@@ -503,10 +503,8 @@ async def _save_section(
     section: str,
     data: dict[str, Any],
     note: str,
-    lock: bool,
 ) -> dict[str, Any]:
-    locked = set(data.get("locked_sections", []))
-    data["locked_sections"] = sorted(locked | {section} if lock else locked - {section})
+    data.setdefault("unlocked_cards", [])
     checks = {**(base.checks or {}), "edited_by": actor, "edited_section": section}
     result = await svc._edited_copy(actor, tenant_id, base, data, checks)
     async with tenant_tx("service", tenant_id) as s:
@@ -519,10 +517,15 @@ async def _save_section(
 async def set_section_lock(
     actor: str, tenant_id: uuid.UUID, step_id: uuid.UUID, section: str, lock: bool
 ) -> dict[str, Any]:
+    """Lock or unlock every card of one tab at once. Everything is locked by default."""
     base = await _discovery_base(tenant_id, step_id, section)
-    data = json.loads(json.dumps(base.output))
+    out = base.output or {}
+    gid = f"g:section:{section}"
+    if gid not in dc.groups(out):
+        raise Invalid("there is nothing in this tab to lock or unlock")
+    data = dc.set_locks(out, [gid], lock)
     word = "locked" if lock else "unlocked"
-    return await _save_section(actor, tenant_id, base, section, data, f"{section} {word}", lock)
+    return await _save_section(actor, tenant_id, base, section, data, f"all {section} cards {word}")
 
 
 async def revise_section(
@@ -537,8 +540,9 @@ async def revise_section(
         raise Invalid(f"keep it under {INSTRUCTION_MAX} characters")
     base = await _discovery_base(tenant_id, step_id, section)
     out = base.output or {}
-    if section in out.get("locked_sections", []):
-        raise Conflict("this section is locked; unlock it to change it")
+    members = set(dc.groups(out).get(f"g:section:{section}", {}).get("members", []))
+    if not members & set(out.get("unlocked_cards", [])):
+        raise Conflict("everything in this tab is locked: unlock the cards you want to change")
     profile = (base.input or {}).get("profile", {})
     current = section_slice(out, section)
     async with tenant_tx("service", tenant_id) as s:
@@ -580,7 +584,7 @@ async def revise_section(
     data = dc.restore_locked(revised, out)
     said = re.sub(r"\s+", " ", instruction)
     saved = await _save_section(
-        actor, tenant_id, base, section, data, f"{section} revised by AI: {said}", lock=False
+        actor, tenant_id, base, section, data, f"{section} revised by AI: {said}"
     )
     async with tenant_tx("service", tenant_id) as s:
         row = await s.get(OnboardingStep, uuid.UUID(saved["step_id"]))
@@ -624,6 +628,7 @@ async def _save_cards(
     note: str,
     touched: list[str],
 ) -> dict[str, Any]:
+    data.setdefault("unlocked_cards", [])
     checks = {**(base.checks or {}), "edited_by": actor, "edited_cards": touched}
     result = await svc._edited_copy(actor, tenant_id, base, data, checks)
     async with tenant_tx("service", tenant_id) as s:
@@ -666,14 +671,18 @@ async def set_card_lock(
     actor: str, tenant_id: uuid.UUID, step_id: uuid.UUID, cid: str, lock: bool
 ) -> dict[str, Any]:
     base = await _cards_base(tenant_id, step_id)
-    data: dict[str, Any] = json.loads(json.dumps(base.output))
-    if cid not in dc.index(data):
+    out = base.output or {}
+    try:
+        members = dc.expand(out, [cid])
+    except ValueError as exc:
+        raise Invalid(str(exc)) from exc
+    members = [m for m in members if m in dc.index(out)]
+    if not members:
         raise NotFound("card")
-    held = set(data.get("locked_cards", []))
-    data["locked_cards"] = sorted(held | {cid} if lock else held - {cid})
+    data = dc.set_locks(out, [cid], lock)
     word = "locked" if lock else "unlocked"
-    saved = await _save_cards(actor, tenant_id, base, data, f"card {word}: {cid}", [cid])
-    return {**saved, "card_id": cid, "locked": lock}
+    saved = await _save_cards(actor, tenant_id, base, data, f"{word}: {cid}", members[:40])
+    return {**saved, "card_id": cid, "locked": lock, "count": len(members)}
 
 
 def _profile_slice(profile: dict[str, Any], table: str) -> dict[str, Any]:
@@ -710,9 +719,13 @@ async def card_context(tenant_id: uuid.UUID, ids: list[str]) -> list[dict[str, A
     if row is None or not row.output:
         return []
     out, profile = row.output, (row.input or {}).get("profile", {})
+    try:
+        ids = dc.expand(out, ids)
+    except ValueError as exc:
+        raise Invalid(str(exc)) from exc
     cards = dc.index(out)
     found: list[dict[str, Any]] = []
-    for cid in ids[: dc.MAX_MENTIONS]:
+    for cid in ids[: dc.MAX_EXPANDED]:
         if cid not in cards:
             continue
         kind, item = cards[cid]
@@ -747,6 +760,10 @@ async def suggest_card_changes(
         raise Invalid(f"name at most {dc.MAX_MENTIONS} cards at a time")
     base = await _cards_base(tenant_id, step_id)
     out = base.output or {}
+    try:
+        ids = dc.expand(out, ids)  # a block names all its cards
+    except ValueError as exc:
+        raise Invalid(str(exc)) from exc
     cards = dc.index(out)
     unknown = [i for i in ids if i not in cards]
     if unknown:
@@ -763,10 +780,12 @@ async def suggest_card_changes(
         agent, prompt = found
         choice = await _choice(s, agent)
 
-    def entry(cid: str) -> dict[str, Any]:
+    def entry(cid: str, brief: bool = False) -> dict[str, Any]:
         kind, item = cards[cid]
         owner = dc.owner_of(out, cid)
         extra: dict[str, Any] = {}
+        if brief:
+            return {"card_id": cid, **dc.view(kind, item, owner)}
         if kind == "table":
             extra = {"profile": _profile_slice(profile, str(item.get("table", "")))}
         if kind == "join":
@@ -782,7 +801,7 @@ async def suggest_card_changes(
             "task": "suggest changes to the cards in editable_cards, nothing else",
             "instruction": instruction,
             "editable_cards": [entry(i) for i in editable],
-            "locked_cards_read_only": [entry(i) for i in fixed],
+            "locked_cards_read_only": [entry(i, True) for i in fixed],
             "allowed_fields": {k: list(v) for k, v in dc.FIELDS.items()},
             "rules": [
                 "return only the fields that must change, as card_id, field, value",
@@ -814,7 +833,7 @@ async def suggest_card_changes(
         "changes": applied,
         "refused": refused + more,
         "locked": [{"card_id": i, "reason": r} for i, r in fixed.items()],
-        "large": len(applied) > dc.LARGE_CHANGES or len(ids) > 5,
+        "large": len(applied) > dc.LARGE_CHANGES or len(editable) > 5,
         "note": result.parsed.note,
     }
 

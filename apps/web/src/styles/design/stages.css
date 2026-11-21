@@ -373,6 +373,9 @@
 /* Lock bar: the lock control is a visible strip, not a small button */
 .lock-bar { display: flex; align-items: center; gap: 14px; padding: 14px 16px; margin-bottom: 14px; border: 1px solid var(--fd-border); border-radius: 16px; background: var(--fd-surface); }
 .lock-bar.locked { border-color: #bfe6d6; background: #eef9f4; }
+.lock-bar.open { border-color: #f1d9a6; background: #fff9ec; }
+.lock-bar.open .lock-bar-icon { color: #8a5a00; border-color: #f1d9a6; }
+.lock-bar-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .lock-bar-icon { flex: none; display: grid; place-items: center; width: 40px; height: 40px; border-radius: 12px; background: var(--fd-white); border: 1px solid var(--fd-border); color: var(--iris); }
 .lock-bar.locked .lock-bar-icon { color: var(--jade); border-color: #bfe6d6; }
 .lock-bar-text { min-width: 0; flex: 1; }
@@ -443,20 +446,24 @@
 .card-float button { display: inline-flex; align-items: center; gap: 5px; flex: none; padding: 5px 11px; border: 0; border-radius: 999px; background: transparent; color: var(--ink); font-size: 12px; font-weight: 600; white-space: nowrap; cursor: pointer; }
 .card-float button:hover:not(:disabled) { background: var(--soft-violet); }
 .card-float button:disabled { opacity: .45; cursor: not-allowed; }
-.card-float .card-lock-toggle.on { background: #eef9f4; color: #215f52; }
+.card-float .card-lock-toggle { color: #215f52; }
+.card-float .card-unlock { color: #8a5a00; }
+.card-float .card-unlock:hover:not(:disabled) { background: #fff6e5; }
 .card-float .card-remove:hover:not(:disabled) { background: #fdeeee; color: #a12626; }
 .card-float .card-at { justify-content: center; min-width: 30px; height: 28px; padding: 0 8px; font-size: 15px; font-weight: 700; color: #5534a6; }
 .card-float .card-at.on { background: var(--soft-violet); }
-article.card-hover > .card-float, li.card-hover > .card-float { top: -14px; right: 12px; }
+.card-hover > .card-float { top: -14px; right: 12px; }
+.fg-head.card-hover > .card-float, header.card-hover > .card-float { top: 50%; right: 8px; transform: translateY(calc(-50% + 3px)); }
+.fg-head.card-hover:hover > .card-float, .fg-head.card-hover:focus-within > .card-float, header.card-hover:hover > .card-float, header.card-hover:focus-within > .card-float { transform: translateY(-50%); }
 td.card-cell { position: relative; width: 1%; padding-right: 0; }
 td.card-cell > .card-float { top: 50%; right: 6px; transform: translateY(calc(-50% + 3px)); }
 tr.card-hover:hover td.card-cell > .card-float, tr.card-hover:focus-within td.card-cell > .card-float, td.card-cell > .card-float.is-pinned { transform: translateY(-50%); }
 th.card-cell { width: 1%; }
-.card-lock-chip { display: inline-flex; align-items: center; gap: 5px; margin-top: 6px; padding: 3px 9px; border-radius: 999px; background: #eef9f4; border: 1px solid #bfe6d6; color: #215f52; font-size: 12px; font-weight: 700; white-space: nowrap; }
-td .card-lock-chip { margin: 0; }
-.is-locked { box-shadow: inset 3px 0 0 #2f9583; }
+.card-open-chip { display: inline-flex; align-items: center; gap: 5px; margin-top: 6px; padding: 3px 9px; border-radius: 999px; background: #fff6e5; border: 1px solid #f1d9a6; color: #8a5a00; font-size: 12px; font-weight: 700; white-space: nowrap; }
+td .card-open-chip, .fg-head .card-open-chip, header .card-open-chip { margin: 0; }
+.is-open { box-shadow: inset 3px 0 0 #d99a2b; }
 .fg-after > td { padding: 0 !important; background: var(--fd-surface); }
-.fg-evidence li.is-locked { padding-left: 10px; }
+.fg-evidence li.is-open { padding-left: 10px; }
 .join-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 .join-list > li { padding: 12px 14px; border-radius: 12px; }
 .join-card-body { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; justify-content: space-between; }
@@ -493,3 +500,13 @@ td .card-lock-chip { margin: 0; }
 .change-diff ins { background: #eef9f4; color: #1f5a4c; }
 .change-confirm { padding: 8px 10px; border-radius: 10px; background: #fff6e5; }
 .engineer-turn-extra { display: block; }
+
+/* Blocks with a heading carry the tools of their whole set of cards */
+.fg-head { display: flex; align-items: center; gap: 10px; min-height: 34px; padding: 2px 6px; margin: 0 -6px; border-radius: 10px; }
+.fg-head > h6, .fg-head > h5 { margin: 0; }
+.fg-head h6 small { margin-left: 6px; color: var(--fd-secondary); font-weight: 500; }
+header.card-hover { padding: 6px 8px; margin: -6px -8px; border-radius: 12px; }
+.fg-overview { padding: 12px 14px; border-radius: 14px; background: var(--ice-blue); }
+.fg-overview .fg-summary { margin: 0; }
+.join-group { display: grid; gap: 8px; margin-top: 6px; }
+.tab-open { display: inline-grid; place-items: center; min-width: 18px; height: 18px; margin-left: 6px; padding: 0 5px; border-radius: 99px; background: #fff6e5; border: 1px solid #f1d9a6; color: #8a5a00; font-size: 11px; font-weight: 700; }

@@ -600,22 +600,12 @@ async def _latest_output(tenant_id: uuid.UUID, step: str) -> dict[str, Any]:
 
 
 async def _restore_sections(tenant_id: uuid.UUID, output: dict[str, Any]) -> dict[str, Any]:
-    """Put the team's locked discovery sections back into a fresh scan (ADR 0030)."""
-    from app.services import onboarding_items as oi
-
+    """Put the team's locked cards back into a fresh scan (ADR 0030). Everything is locked unless
+    the team unlocked it, so a rerun can only change what was opened."""
     previous = await _latest_output(tenant_id, "discovery")
     if output.get("raw"):
         return output
-    output = dc.restore_locked(output, previous)  # locked cards come back, field by field
-    keep = [k for k in previous.get("locked_sections", []) if k in oi.SECTIONS]
-    if not keep:
-        return output
-    for section in list(keep):
-        try:
-            output = oi.apply_section(output, section, oi.section_slice(previous, section), {})
-        except (ValueError, KeyError, Invalid):
-            keep.remove(section)  # the new scan has no such table: it is not kept
-    return {**output, "locked_sections": keep}
+    return dc.restore_locked(output, previous)
 
 
 async def _locked_items(
@@ -712,7 +702,7 @@ async def _finish(
         step = row.step
     if step in ITEMS and "locked" not in output:
         output, checks = await _restore_locked(tenant_id, step, output, checks)
-    if step == "discovery" and "locked_sections" not in output:
+    if step == "discovery" and "unlocked_cards" not in output:
         output = await _restore_sections(tenant_id, output)
     async with tenant_tx("service", tenant_id) as s:
         row = await s.get(OnboardingStep, step_id)
@@ -2111,6 +2101,7 @@ async def guide(tenant_id: uuid.UUID) -> dict[str, Any]:
                      for c in t.get("columns", [])]}
         for t in profile.get("tables", [])
     ]  # fmt: skip
+
     def _clip(v: Any, n: int = 200) -> str:
         return str(v or "")[:n]
 
