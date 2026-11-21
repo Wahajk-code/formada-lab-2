@@ -69,7 +69,14 @@ function subscribe(listener: () => void) {
 /** Add turns to a conversation (safe to call after the page has moved on). */
 export function appendTurns(workspaceId: string, scope: string, ...more: AssistantTurn[]) {
   const key = keyOf(workspaceId, scope);
-  write(key, [...read(key), ...more]);
+  const at = Date.now(); // lets a just-arrived answer be revealed word by word
+  write(key, [...read(key), ...more.map((t) => ({ at, ...t }))]);
+}
+
+/** Drop a message and everything after it (the person is editing it). */
+export function truncateTurns(workspaceId: string, scope: string, from: number) {
+  const key = keyOf(workspaceId, scope);
+  write(key, read(key).slice(0, Math.max(0, from)));
 }
 
 /** Forget every conversation of a workspace (onboarding is finished). */

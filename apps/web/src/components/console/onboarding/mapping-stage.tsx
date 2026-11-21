@@ -7,7 +7,7 @@ import { useRef, useState, useTransition } from "react";
 import { askWorkspaceAI, confirmMappingLink, editProposalItem, reviseProposalItem } from "@/app/console-actions";
 import { ChatJump } from "@/components/console/onboarding/chat-jump";
 import { EngineerChat } from "@/components/console/onboarding/engineer-chat";
-import { appendTurns, useChatTurns } from "@/lib/chat-store";
+import { appendTurns, truncateTurns, useChatTurns } from "@/lib/chat-store";
 import { FieldFlow, WORDS } from "@/components/console/onboarding/mapping-guide";
 import { Icon, type IconName } from "@/components/ui/icon";
 import type { OnboardingGuide, OnboardingStep } from "@/lib/console-api";
@@ -196,6 +196,7 @@ export function MappingStage({
           starters={["Which mappings need review?", `Explain ${WORDS[reviewable[0]?.a.archetype] ?? "the first link"}`]}
           onAsk={ask}
           onClear={clear}
+          onTruncate={(i) => truncateTurns(workspaceId, "mapping", i)}
         />
       </div>
       <ChatJump />

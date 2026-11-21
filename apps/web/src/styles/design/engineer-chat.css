@@ -149,3 +149,35 @@ body:has(.engineer-chat-dialog[open]) { overflow: hidden; }
   .engineer-chat-internal { display: none; }
   .engineer-chat-bottom { padding-inline: 10px; }
 }
+
+/* Chat messages: tools on hover, formatted text revealed word by word, the working animation */
+.turn-col { display: flex; flex-direction: column; min-width: 0; }
+.engineer-turn-user .turn-col { align-items: flex-end; max-width: min(84%, 540px); }
+.engineer-turn-user .turn-col article { max-width: 100%; }
+.engineer-turn-assistant .turn-col { flex: 1; }
+.turn-actions { display: flex; gap: 2px; margin-top: 2px; opacity: 0; transform: translateY(-2px); transition: opacity .15s ease, transform .15s ease; }
+.turn-hover:hover .turn-actions, .turn-hover:focus-within .turn-actions { opacity: 1; transform: none; }
+.turn-actions button { display: inline-flex; align-items: center; gap: 5px; padding: 3px 8px; border: 0; border-radius: 8px; background: transparent; color: var(--fd-secondary); font-size: 12px; font-weight: 600; white-space: nowrap; cursor: pointer; }
+.turn-actions button:hover { background: var(--soft-violet); color: var(--ink); }
+@media (hover: none) { .turn-actions { opacity: 1; transform: none; } }
+
+.chat-md > :first-child { margin-top: 3px; }
+.chat-md p { margin: 0 0 8px; white-space: normal; }
+.chat-md p:last-child { margin-bottom: 0; }
+.chat-md ul, .chat-md ol { margin: 0 0 8px; padding-left: 20px; }
+.chat-md li { margin: 3px 0; }
+.chat-md code { padding: 1px 5px; border-radius: 6px; background: var(--fd-surface); font: 500 12.5px var(--fd-mono); }
+.chat-md .chat-heading { margin-top: 8px; }
+.stream-caret { display: inline-block; width: 7px; height: 1.05em; margin-left: 2px; vertical-align: text-bottom; border-radius: 2px; background: var(--iris); animation: caret-blink 1s steps(2, start) infinite; }
+@keyframes caret-blink { to { visibility: hidden; } }
+
+.thinking-mark { display: inline-grid; place-items: center; margin-top: 6px; }
+.thinking-mark svg { width: 100%; height: 100%; overflow: visible; }
+.thinking-mark path, .thinking-mark circle { transform-box: fill-box; transform-origin: center; }
+.tm-a { animation: tm-breathe 1.6s ease-in-out infinite; }
+.tm-b { animation: tm-breathe 1.6s ease-in-out .25s infinite; }
+.tm-c { animation: tm-breathe 1.6s ease-in-out .5s infinite; }
+.tm-d { animation: tm-dot 1.6s ease-in-out .75s infinite; }
+@keyframes tm-breathe { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(.8); opacity: .4; } }
+@keyframes tm-dot { 0%, 100% { transform: scale(1); } 40% { transform: scale(1.3) translateY(-6px); } 70% { transform: scale(.9); } }
+@media (prefers-reduced-motion: reduce) { .tm-a, .tm-b, .tm-c, .tm-d, .stream-caret { animation: none; } }

@@ -175,7 +175,7 @@ export type CardFull = {
 /** What code checked about an AI answer (ADR 0029): its sources, whether the context held the
  * answer, and the numbers it could not find in the context. */
 export type AnswerCheck = { sources: string[]; grounded: "yes" | "partly" | "no"; unverified: string[] };
-export type AssistantTurn = { role: "user" | "assistant"; text: string; check?: AnswerCheck };
+export type AssistantTurn = { role: "user" | "assistant"; text: string; check?: AnswerCheck; at?: number };
 export type MetricIdea = { name: string; template: string; roles: string[]; alert: string; why: string };
 export type RuleIdea = { key: string; label: string; value: number; unit: string; why: string };
 export type ClientAnswer = AnswerCheck & { answer: string; metric_suggestions: MetricIdea[]; rule_suggestions: RuleIdea[] };

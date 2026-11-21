@@ -17,7 +17,7 @@ import {
 } from "@/app/console-actions";
 import { AddJoin, CardBar, CardEditor, ChangeReview, GroupBar, type CardCtx } from "@/components/console/onboarding/card-tools";
 import { ChatJump } from "@/components/console/onboarding/chat-jump";
-import { appendTurns, useChatTurns } from "@/lib/chat-store";
+import { appendTurns, truncateTurns, useChatTurns } from "@/lib/chat-store";
 import { cardId, cardList, groupIndex, type CardSuggestion } from "@/lib/discovery-cards";
 import { EngineerChat } from "@/components/console/onboarding/engineer-chat";
 import { cn } from "@/lib/utils";
@@ -758,6 +758,7 @@ export function DiscoveryStage({
           scope={`Discovery / ${SECTIONS[section]}`}
           turns={chat.turns}
           onClear={chat.clear}
+          onTruncate={(i) => truncateTurns(workspaceId, `discovery:${section}`, i)}
           pending={pending}
           thinking={thinking}
           emptyTitle="What would you like to review?"

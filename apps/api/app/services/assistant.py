@@ -37,6 +37,14 @@ from app.services.agents import _choice
 
 log = get_logger(__name__)
 AGENT = "workspace_assistant"
+STYLE = [
+    "Answer the question that was asked, first, and stay on its topic. Do not describe parts of "
+    "the context the question did not ask about.",
+    "Use plain everyday words. Name a table or field only when it is needed to be understood.",
+    "If the person asks you to simplify or explain simply, drop field names and technical terms "
+    "and use at most four short points, each one plain sentence.",
+    "If the context does not contain the answer, say so in one sentence and say who can answer.",
+]
 QUESTION_MAX = 2000
 HISTORY_TURNS = 8
 # Settings a client may suggest; the rest stay with our team.
@@ -122,6 +130,34 @@ async def _templates(maps: set[str]) -> list[dict[str, Any]]:
     ]
 
 
+def _connections(profile: dict[str, Any]) -> dict[str, Any]:
+    """How the customer's tables connect, as measured and as the customer declared it: the joins
+    we tested on the data (share of values that match), the links inside their semantic views, and
+    whether item codes match between areas. Names and percentages only."""
+    tested = [
+        {"from": j.get("source"), "to": j.get("target"), "confirmed": j.get("confirmed"),
+         "matched_pct": j.get("matched_pct"), "values_without_match": j.get("orphan_values")}
+        for j in (profile.get("joins") or [])[:30]
+    ]  # fmt: skip
+    declared = [
+        {"view": v.get("view"),
+         "links": [" ".join(str(r).split()) for r in (v.get("relationships") or [])[:60]]}
+        for v in (profile.get("semantic_views") or [])
+    ]  # fmt: skip
+    overlaps = [
+        {"left": o.get("left"), "right": o.get("right"), "matching_pct": o.get("pct_of_right")}
+        for o in (profile.get("key_overlaps") or [])[:10]
+    ]  # fmt: skip
+    found: dict[str, Any] = {}
+    if tested:
+        found["tested_joins"] = tested
+    if any(d["links"] for d in declared):
+        found["customer_view_links"] = declared
+    if overlaps:
+        found["item_code_matches"] = overlaps
+    return found
+
+
 async def _team_context(tenant_id: uuid.UUID) -> dict[str, Any]:
     async with tenant_tx("service", tenant_id) as s:
         tenant = await s.get(Tenant, tenant_id)
@@ -133,6 +169,13 @@ async def _team_context(tenant_id: uuid.UUID) -> dict[str, Any]:
             await s.scalars(select(OnboardingThread).where(OnboardingThread.status == "open"))
         ).all()
         p = await collab._progress(s, tenant) if tenant else None
+        disc = await s.scalar(
+            select(OnboardingStep)
+            .where(OnboardingStep.step == "discovery", OnboardingStep.output.is_not(None))
+            .order_by(OnboardingStep.created_at.desc())
+            .limit(1)
+        )
+    profile = ((disc.input or {}).get("profile") or {}) if disc else {}
     ctx: dict[str, Any] = {
         "workspace": tenant.name if tenant else "",
         "currency": tenant.currency if tenant else "",
@@ -156,12 +199,23 @@ async def _team_context(tenant_id: uuid.UUID) -> dict[str, Any]:
     if d:
         ctx["data_guide"] = {
             "summary": d.get("summary"), "cadence": d.get("cadence"),
-            "tables": [{k: t.get(k) for k in ("table", "kind", "grain", "purpose", "key_columns")}
-                       for t in d.get("tables", [])],
+            "tables": [
+                {
+                    **{k: t.get(k) for k in ("table", "kind", "grain", "purpose", "key_columns")},
+                    "joins_to": [
+                        {"from_field": j.get("column"),
+                         "table": f"{j.get('references_table')}.{j.get('references_column')}",
+                         "confidence": j.get("confidence")}
+                        for j in t.get("joins", [])
+                    ],
+                }
+                for t in d.get("tables", [])
+            ],
             "coverage": d.get("coverage"),
             "issues": [{k: q.get(k) for k in ("title", "severity", "impact", "suggested_handling")}
                        for q in d.get("quality_issues", [])],
         }  # fmt: skip
+        ctx["data_guide"].update(_connections(profile))
     m = steps.get("mapping")
     if m:
         checks = (m.get("checks") or {}).get("archetypes", {})
@@ -244,7 +298,7 @@ async def _call(
         choice = await _choice(s, agent)
     user = json.dumps(
         {"asker": side, "step": step, "context": ctx, "conversation": _history(history),
-         "question": question},
+         "answer_style": STYLE, "question": question},
         ensure_ascii=False, default=str,
     )  # fmt: skip
     fake = AssistantOut(answer="(local fake model) " + question, metric_suggestions=[],
