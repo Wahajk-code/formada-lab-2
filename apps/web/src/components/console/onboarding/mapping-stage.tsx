@@ -5,10 +5,11 @@ import { useRouter } from "next/navigation";
 import { useRef, useState, useTransition } from "react";
 
 import { askWorkspaceAI, confirmMappingLink, editProposalItem, reviseProposalItem } from "@/app/console-actions";
+import { ChatJump } from "@/components/console/onboarding/chat-jump";
 import { EngineerChat } from "@/components/console/onboarding/engineer-chat";
+import { appendTurns, useChatTurns } from "@/lib/chat-store";
 import { FieldFlow, WORDS } from "@/components/console/onboarding/mapping-guide";
 import { Icon, type IconName } from "@/components/ui/icon";
-import type { AssistantTurn } from "@/lib/client-api";
 import type { OnboardingGuide, OnboardingStep } from "@/lib/console-api";
 
 type Filter = "All" | "Confirmed" | "Needs review";
@@ -91,7 +92,7 @@ export function MappingStage({
 
   const [filter, setFilter] = useState<Filter>("All");
   const [openKey, setOpenKey] = useState<string | null>(null);
-  const [turns, setTurns] = useState<AssistantTurn[]>([]);
+  const { turns, clear } = useChatTurns(workspaceId, "mapping");
   const [thinking, setThinking] = useState(false);
   const [busy, start] = useTransition();
   const [note, setNote] = useState<Record<string, { ok: boolean; text: string }>>({});
@@ -103,14 +104,14 @@ export function MappingStage({
 
   const ask = (text: string) => {
     const history = turns;
-    setTurns([...history, { role: "user", text }]);
+    appendTurns(workspaceId, "mapping", { role: "user", text });
     setThinking(true);
     start(async () => {
       const res = await askWorkspaceAI(workspaceId, "mapping", text, history);
       if (res.ok && res.data) {
         const { answer, sources: src, grounded, unverified } = res.data;
-        setTurns((t) => [...t, { role: "assistant", text: answer, check: { sources: src, grounded, unverified } }]);
-      } else setTurns((t) => [...t, { role: "assistant", text: res.ok ? "No answer." : res.error }]);
+        appendTurns(workspaceId, "mapping", { role: "assistant", text: answer, check: { sources: src, grounded, unverified } });
+      } else appendTurns(workspaceId, "mapping", { role: "assistant", text: res.ok ? "No answer." : res.error });
       setThinking(false);
     });
   };
@@ -194,8 +195,10 @@ export function MappingStage({
           placeholder="Ask about a mapping…"
           starters={["Which mappings need review?", `Explain ${WORDS[reviewable[0]?.a.archetype] ?? "the first link"}`]}
           onAsk={ask}
+          onClear={clear}
         />
       </div>
+      <ChatJump />
 
       <section className="stage-panel stage-content-panel">
         <PanelTitle title="Mapping review" description="Compare each of their tables with the shape it feeds in the Formada standard model." icon="network" />

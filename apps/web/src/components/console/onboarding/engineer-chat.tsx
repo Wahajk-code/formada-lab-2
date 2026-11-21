@@ -34,6 +34,8 @@ type Props = {
   onMentions?: (ids: string[]) => void;
   /** Rendered after the last message: the review of changes the assistant suggests. */
   extra?: React.ReactNode;
+  /** Forget the saved conversation (it is kept until onboarding is done). */
+  onClear?: () => void;
 };
 
 export type Mentionable = { id: string; label: string; kind: string; locked: boolean };
@@ -54,7 +56,7 @@ export function EngineerChat(props: Props) {
   const shared = { ...props, draft, setDraft };
   return (
     <>
-      <div data-engineer-chat hidden={expanded}>
+      <div id="engineer-chat" data-engineer-chat hidden={expanded}>
         <Chat {...shared} expanded={false} onView={() => setExpanded(true)} />
       </div>
       <dialog
@@ -85,6 +87,7 @@ function Chat({
   mentions = [],
   onMentions,
   extra,
+  onClear,
   draft,
   setDraft,
   expanded,
@@ -310,6 +313,15 @@ function Chat({
           <p className="engineer-chat-note">
             <Icon name={rerun.locked ? "lock" : "info-circle"} size={15} />
             <span>{rerun.hint}</span>
+          </p>
+        )}
+        {onClear && turns.length > 0 && !busy && (
+          <p className="engineer-chat-note">
+            <Icon name="clock" size={15} />
+            <span>This conversation is saved until onboarding is done.</span>
+            <button type="button" className="engineer-clear" onClick={onClear}>
+              Clear it
+            </button>
           </p>
         )}
       </div>

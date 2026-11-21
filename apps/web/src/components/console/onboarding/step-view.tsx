@@ -56,6 +56,7 @@ import { Icon } from "@/components/ui/icon";
 import { Button } from "@/components/ui/button";
 import type { ThreadStep } from "@/lib/client-api";
 import type { OnboardingGuide, OnboardingState, OnboardingStep, OnboardingStepName } from "@/lib/console-api";
+import { clearWorkspaceChats } from "@/lib/chat-store";
 import { cn } from "@/lib/utils";
 
 const FIELD =
@@ -254,6 +255,7 @@ function GoLiveBar({ state, can }: { state: OnboardingState; can: boolean }) {
               onClick={() =>
                 start(async () => {
                   const res = await goLive(state.workspace.id, invite);
+                  if (res.ok) clearWorkspaceChats(state.workspace.id); // onboarding is done
                   setMsg(res.ok ? `Live. ${res.data?.invited.length ?? 0} invite(s) sent.` : res.error);
                   router.refresh();
                 })

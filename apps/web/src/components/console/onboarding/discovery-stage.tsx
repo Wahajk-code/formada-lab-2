@@ -16,6 +16,8 @@ import {
   suggestCardChanges,
 } from "@/app/console-actions";
 import { AddJoin, CardBar, CardEditor, ChangeReview, GroupBar, type CardCtx } from "@/components/console/onboarding/card-tools";
+import { ChatJump } from "@/components/console/onboarding/chat-jump";
+import { appendTurns, useChatTurns } from "@/lib/chat-store";
 import { cardId, cardList, groupIndex, type CardSuggestion } from "@/lib/discovery-cards";
 import { EngineerChat } from "@/components/console/onboarding/engineer-chat";
 import { cn } from "@/lib/utils";
@@ -284,7 +286,8 @@ export function DiscoveryStage({
   const [dimension, setDimension] = useState<Dimension>("tables");
   const [schemaFilter, setSchemaFilter] = useState("All");
   const [search, setSearch] = useState("");
-  const [turns, setTurns] = useState<Record<Section, AssistantTurn[]>>({ guide: [], relationships: [], gaps: [] });
+  // The conversation is saved in this browser per tab, until onboarding is done.
+  const chat = useChatTurns(workspaceId, `discovery:${section}`);
   const [pending, setPending] = useState("");
   const [thinking, setThinking] = useState(false);
   const [sent, setSent] = useState<Set<string>>(new Set());
@@ -374,11 +377,11 @@ export function DiscoveryStage({
       `${t.table} ${t.kind} ${t.purpose} ${t.keys.join(" ")}`.toLowerCase().includes(search.trim().toLowerCase()),
   );
 
-  const push = (s: Section, ...more: AssistantTurn[]) => setTurns((cur) => ({ ...cur, [s]: [...cur[s], ...more] }));
+  const push = (s: Section, ...more: AssistantTurn[]) => appendTurns(workspaceId, `discovery:${s}`, ...more);
 
   const ask = (text: string) => {
     const s = section;
-    const history = turns[s];
+    const history = chat.turns;
     push(s, { role: "user", text });
     setThinking(true);
     start(async () => {
@@ -753,7 +756,8 @@ export function DiscoveryStage({
       <section className="stage-panel stage-content-panel discovery-assistant">
         <EngineerChat
           scope={`Discovery / ${SECTIONS[section]}`}
-          turns={turns[section]}
+          turns={chat.turns}
+          onClear={chat.clear}
           pending={pending}
           thinking={thinking}
           emptyTitle="What would you like to review?"
@@ -787,6 +791,7 @@ export function DiscoveryStage({
           onRerun={rerun}
         />
       </section>
+      <ChatJump count={mentions.length} />
     </>
   );
 }
