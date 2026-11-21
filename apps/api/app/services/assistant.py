@@ -15,11 +15,14 @@ from app.core.db import global_tx, tenant_tx
 from app.core.errors import Conflict, Forbidden, Invalid
 from app.core.logging import get_logger
 from app.domain import grounding
+from app.domain import onboarding as ob
 from app.domain import onboarding_flow as flow
 from app.domain.config import SCHEMA, coerce
+from app.domain.llm import PRICES, estimated_cost
 from app.integrations.llm import get_llm
 from app.models import (
     ArchetypeMapping,
+    DataArchetype,
     Metric,
     OnboardingSignoff,
     OnboardingStep,
@@ -43,10 +46,16 @@ STYLE = [
     "Use plain everyday words. Name a table or field only when it is needed to be understood.",
     "If the person asks you to simplify or explain simply, drop field names and technical terms "
     "and use at most four short points, each one plain sentence.",
-    "If the context does not contain the answer, say so in one sentence and say who can answer.",
+    "Everything the system knew when it made the data guide is in the context: warehouse_profile "
+    "(every table and field, dates, categories, the customer's semantic views), data_guide, "
+    "links (the mapping), standard_model and ai_cost (what each step cost, and what runs cost "
+    "after go-live). Look there before saying something is missing.",
+    "If the context really does not contain the answer, say so in one sentence and say who can "
+    "answer.",
 ]
 QUESTION_MAX = 2000
-HISTORY_TURNS = 8
+HISTORY_TURNS = 20
+CONTEXT_LIMIT = 450_000  # characters; past this the largest parts are slimmed (see _fit)
 # Settings a client may suggest; the rest stay with our team.
 CLIENT_RULE_KEYS = (
     "max_open_cards_per_role",
@@ -130,19 +139,89 @@ async def _templates(maps: set[str]) -> list[dict[str, Any]]:
     ]
 
 
+# What running Formada costs once a customer is live, measured on the demo data (docs/llm-costs.md,
+# 2026-10-28). One weekly run asks the model once per role that has signals.
+COST_REFERENCE: dict[str, Any] = {
+    "measured": "2026-10-28 on the Whaaj demo data, one weekly run of 4 roles",
+    "cost_per_weekly_run_usd": {"claude-haiku-5-5": 0.0024, "claude-sonnet-5-5": 0.040},
+    "cost_per_role_per_run_usd": {
+        "claude-haiku-5-5": "0.0004 to 0.0008",
+        "claude-sonnet-5-5": "0.008 to 0.014",
+    },
+    "projected_per_month_usd": {
+        "weekly runs, 4 roles": {"claude-haiku-5-5": 0.01, "claude-sonnet-5-5": 0.17},
+        "weekly runs, 30 roles": {"claude-haiku-5-5": 0.08, "claude-sonnet-5-5": 1.30},
+        "weekly runs plus daily checks, 4 roles": {
+            "claude-haiku-5-5": 0.08,
+            "claude-sonnet-5-5": 1.40,
+        },
+        "weekly runs plus daily checks, 30 roles": {
+            "claude-haiku-5-5": 0.60,
+            "claude-sonnet-5-5": 10,
+        },
+    },
+    "notes": (
+        "Haiku is the default card writer: about 17 times cheaper than Sonnet and it followed "
+        "the numbers-only rule better. Roles with no signals never call the model. Daily "
+        "checks cost nothing when the roles already have open cards for the same signals."
+    ),
+}
+
+
+def _cost_structure(rows: list[Any]) -> dict[str, Any]:
+    """What the onboarding AI has cost this workspace so far: per step and per run, with tokens,
+    model and speed, and the price table behind it. Chat questions are not counted."""
+    runs: list[dict[str, Any]] = []
+    by_step: dict[str, dict[str, Any]] = {}
+    models: set[str] = set()
+    total = 0.0
+    for r in rows:
+        tokens = (r.input_tokens or 0) + (r.output_tokens or 0)
+        cost = estimated_cost(r.model or "", tokens) or 0.0
+        total += cost
+        models.add(r.model or "")
+        step = by_step.setdefault(
+            r.step,
+            {"runs": 0, "input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0, "seconds": 0.0},
+        )
+        step["runs"] += 1
+        step["input_tokens"] += r.input_tokens or 0
+        step["output_tokens"] += r.output_tokens or 0
+        step["cost_usd"] = round(step["cost_usd"] + cost, 4)
+        step["seconds"] = round(step["seconds"] + (r.latency_ms or 0) / 1000, 1)
+        runs.append(
+            {"step": r.step, "status": r.status, "agent": f"{r.agent_key} v{r.agent_version}",
+             "model": r.model, "input_tokens": r.input_tokens, "output_tokens": r.output_tokens,
+             "seconds": round((r.latency_ms or 0) / 1000, 1), "cost_usd": cost,
+             "at": r.created_at.isoformat()}
+        )  # fmt: skip
+    return {
+        "total_usd": round(total, 4),
+        "by_step": by_step,
+        "runs_latest_40": runs[-40:],
+        "price_per_million_tokens_usd": {
+            m: {"input": PRICES[m][0], "output": PRICES[m][1]}
+            for m in sorted(models)
+            if m in PRICES
+        },
+        "how_calculated": (
+            "Estimated from tokens at the model's price per million tokens, assuming 80% of "
+            "tokens are input: the same figure the console shows. Real billing can differ a "
+            "little."
+        ),
+        "not_included": "Chat questions and suggestions to this assistant are not tracked here.",
+        "after_go_live": COST_REFERENCE,
+    }
+
+
 def _connections(profile: dict[str, Any]) -> dict[str, Any]:
-    """How the customer's tables connect, as measured and as the customer declared it: the joins
-    we tested on the data (share of values that match), the links inside their semantic views, and
-    whether item codes match between areas. Names and percentages only."""
+    """The measured results about how tables connect, kept together and easy to find: the joins we
+    tested on the data (share of values that match) and whether item codes match between areas.
+    The customer's own view links are in warehouse_profile."""
     tested = [
         {"from": j.get("source"), "to": j.get("target"), "confirmed": j.get("confirmed"),
          "matched_pct": j.get("matched_pct"), "values_without_match": j.get("orphan_values")}
         for j in (profile.get("joins") or [])[:30]
-    ]  # fmt: skip
-    declared = [
-        {"view": v.get("view"),
-         "links": [" ".join(str(r).split()) for r in (v.get("relationships") or [])[:60]]}
-        for v in (profile.get("semantic_views") or [])
     ]  # fmt: skip
     overlaps = [
         {"left": o.get("left"), "right": o.get("right"), "matching_pct": o.get("pct_of_right")}
@@ -151,11 +230,63 @@ def _connections(profile: dict[str, Any]) -> dict[str, Any]:
     found: dict[str, Any] = {}
     if tested:
         found["tested_joins"] = tested
-    if any(d["links"] for d in declared):
-        found["customer_view_links"] = declared
     if overlaps:
         found["item_code_matches"] = overlaps
     return found
+
+
+def _fit(ctx: dict[str, Any], limit: int = CONTEXT_LIMIT) -> dict[str, Any]:
+    """Keep the context under a size limit for very large warehouses. Everything is kept for a
+    normal one. When it is too big, the least useful detail goes first, step by step, and
+    `context_trimmed` says what was cut so the assistant can tell the person."""
+    profile: dict[str, Any] = ctx.get("warehouse_profile") or {}
+    view_tables = [t for v in profile.get("semantic_views", []) for t in v.get("tables", [])]
+
+    def drop_field_descriptions() -> None:
+        for t in view_tables:
+            for d in t.get("dimensions", []):
+                d.pop("comment", None)
+
+    def drop_field_lists() -> None:
+        for t in view_tables:
+            t.pop("dimensions", None)
+
+    def cap_fields() -> None:
+        for t in profile.get("tables", []):
+            t["columns"] = t.get("columns", [])[:40]
+
+    def drop_daily_counts() -> None:
+        (profile.get("time_profile") or {}).pop("by_date", None)
+        profile.pop("name_keywords", None)
+
+    steps = (
+        ("the customer's field descriptions", drop_field_descriptions),
+        ("the customer's field lists (measures are kept)", drop_field_lists),
+        ("fields beyond 40 per table", cap_fields),
+        ("daily row counts and name keywords", drop_daily_counts),
+    )
+    cut: list[str] = []
+    for name, act in steps:
+        if len(json.dumps(ctx, default=str, separators=(",", ":"))) <= limit:
+            break
+        act()
+        cut.append(name)
+    if cut:
+        ctx["context_trimmed"] = (
+            "This warehouse is very large, so these were left out: " + "; ".join(cut)
+        )
+    return ctx
+
+
+async def _standard_model() -> list[dict[str, Any]]:
+    """The shapes Formada maps every warehouse onto, with what each field means."""
+    async with global_tx("service") as s:
+        rows = (await s.scalars(select(DataArchetype).order_by(DataArchetype.key))).all()
+    return [
+        {"archetype": a.key, "description": a.description, "grain": list(ob.GRAIN.get(a.key, [])),
+         "fields": [{"field": k, "meaning": v} for k, v in a.columns.items()]}
+        for a in rows
+    ]  # fmt: skip
 
 
 async def _team_context(tenant_id: uuid.UUID) -> dict[str, Any]:
@@ -175,7 +306,15 @@ async def _team_context(tenant_id: uuid.UUID) -> dict[str, Any]:
             .order_by(OnboardingStep.created_at.desc())
             .limit(1)
         )
-    profile = ((disc.input or {}).get("profile") or {}) if disc else {}
+        spent = (
+            await s.scalars(
+                select(OnboardingStep)
+                .where(OnboardingStep.model.is_not(None))
+                .order_by(OnboardingStep.created_at)
+            )
+        ).all()
+    disc_in = (disc.input or {}) if disc else {}
+    profile = disc_in.get("profile") or {}
     ctx: dict[str, Any] = {
         "workspace": tenant.name if tenant else "",
         "currency": tenant.currency if tenant else "",
@@ -194,45 +333,51 @@ async def _team_context(tenant_id: uuid.UUID) -> dict[str, Any]:
             for m in metrics
         ],
         "rules": {k: getattr(rules, k) for k in SCHEMA},
+        "ai_cost": _cost_structure(list(spent)),
     }
     d = steps.get("discovery", {}).get("output")
     if d:
+        # The whole data guide, as written, with the team's open and locked state.
         ctx["data_guide"] = {
-            "summary": d.get("summary"), "cadence": d.get("cadence"),
-            "tables": [
-                {
-                    **{k: t.get(k) for k in ("table", "kind", "grain", "purpose", "key_columns")},
-                    "joins_to": [
-                        {"from_field": j.get("column"),
-                         "table": f"{j.get('references_table')}.{j.get('references_column')}",
-                         "confidence": j.get("confidence")}
-                        for j in t.get("joins", [])
-                    ],
-                }
-                for t in d.get("tables", [])
-            ],
-            "coverage": d.get("coverage"),
-            "issues": [{k: q.get(k) for k in ("title", "severity", "impact", "suggested_handling")}
-                       for q in d.get("quality_issues", [])],
+            **{k: d.get(k) for k in ("summary", "cadence", "tables", "semantic_views", "coverage",
+                                     "quality_issues", "questions")},
+            "cards_open_for_changes": d.get("unlocked_cards", []),
+            "relationships_the_team_removed": d.get("removed_joins", []),
         }  # fmt: skip
         ctx["data_guide"].update(_connections(profile))
+    if profile:
+        # Everything the guide was made from: every table and field with type, how complete it is
+        # and distinct counts, dates and cadence, category values, and the customer's semantic
+        # views with their fields, measures, formulas, descriptions and links. Never rows.
+        ctx["warehouse_profile"] = {k: v for k, v in profile.items() if k != "privacy"}
+        ctx["how_the_guide_was_made"] = {
+            "instructions_from_the_team": disc_in.get("team_notes") or "",
+            "analyst": (
+                f"{disc.agent_key} v{disc.agent_version}" if disc and disc.agent_key else None
+            ),
+            "made_at": disc.created_at.isoformat() if disc else None,
+        }
+        ctx["standard_model"] = await _standard_model()
     m = steps.get("mapping")
     if m:
         checks = (m.get("checks") or {}).get("archetypes", {})
         ctx["links"] = [
             {"standard_shape": a["archetype"], "status": a["status"], "filters": a.get("filters"),
+             "questions": a.get("questions"),
              "rows": checks.get(a["archetype"], {}).get("rows"),
              "passes_live_test": checks.get(a["archetype"], {}).get("ok"),
+             "live_test_details": checks.get(a["archetype"]),
              "fields": [{"field": f["field"], "from": f["source_columns"],
-                         "confidence": f["confidence"], "how": _trim(f.get("expression"), 200)}
+                         "confidence": f["confidence"], "how": f.get("expression"),
+                         "why": f.get("reason")}
                         for f in a.get("fields", [])],
-             "sql": _trim(a.get("source_sql"), 1500)}
+             "sql": a.get("source_sql")}
             for a in m["output"].get("archetypes", [])
         ]  # fmt: skip
     for key in ("org", "metrics", "rules"):
         if key in steps:
             ctx[f"{key}_proposal"] = {"status": steps[key]["status"], **steps[key]["output"]}
-    return ctx
+    return _fit(ctx)
 
 
 async def _client_context(principal: Principal, step: str) -> dict[str, Any]:
@@ -278,7 +423,7 @@ async def _client_context(principal: Principal, step: str) -> dict[str, Any]:
 
 
 def _history(history: list[Turn]) -> str:
-    return "\n".join(f"{t.role}: {t.text[:1500]}" for t in history[-HISTORY_TURNS:])
+    return "\n".join(f"{t.role}: {t.text[:4000]}" for t in history[-HISTORY_TURNS:])
 
 
 async def _call(
@@ -299,7 +444,7 @@ async def _call(
     user = json.dumps(
         {"asker": side, "step": step, "context": ctx, "conversation": _history(history),
          "answer_style": STYLE, "question": question},
-        ensure_ascii=False, default=str,
+        ensure_ascii=False, default=str, separators=(",", ":"),
     )  # fmt: skip
     fake = AssistantOut(answer="(local fake model) " + question, metric_suggestions=[],
                         rule_suggestions=[])  # fmt: skip
