@@ -37,8 +37,8 @@ type Props = {
   extra?: React.ReactNode;
   /** Forget the saved conversation (it is kept until onboarding is done). */
   onClear?: () => void;
-  /** Drop a message and everything after it, so the person can edit it and send again. */
-  onTruncate?: (index: number) => void;
+  /** Ask again with an edited message, from that message on (the messages below are cleared). */
+  onResend?: (index: number, text: string) => void;
 };
 
 export type Mentionable = { id: string; label: string; kind: string; locked: boolean };
@@ -91,7 +91,7 @@ function Chat({
   onMentions,
   extra,
   onClear,
-  onTruncate,
+  onResend,
   draft,
   setDraft,
   expanded,
@@ -100,16 +100,10 @@ function Chat({
   const scroll = useRef<HTMLDivElement>(null);
   const busy = Boolean(pending) || thinking;
   const hasConversation = turns.length > 0 || busy || Boolean(extra);
-  const box = useRef<HTMLTextAreaElement>(null);
   const follow = useCallback(() => {
     const el = scroll.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, []);
-  const edit = (i: number) => {
-    setDraft(turns[i].text);
-    onTruncate?.(i);
-    window.setTimeout(() => box.current?.focus(), 0);
-  };
   const [picker, setPicker] = useState<{ query: string; start: number; end: number; index: number } | null>(null);
   const byId = new Map(mentionables.map((m) => [m.id, m]));
   const options = picker
@@ -167,7 +161,7 @@ function Chat({
         {hasConversation ? (
           <ol className="engineer-chat-log" role="log" aria-label="Conversation history" aria-live="polite" aria-relevant="additions text">
             {turns.map((t, i) => (
-              <ChatTurn key={`${i}:${t.at ?? 0}`} turn={t} canEdit={Boolean(onTruncate) && !busy} onEdit={() => edit(i)} onProgress={follow} />
+              <ChatTurn key={`${i}:${t.at ?? 0}`} turn={t} canEdit={Boolean(onResend) && !busy} onResend={(text) => onResend?.(i, text)} onProgress={follow} />
             ))}
             {busy && (
               <>
@@ -235,7 +229,6 @@ function Chat({
           <div className="mention-wrap">
             <textarea
               aria-label="Message to the engineering assistant"
-              ref={box}
               name="message"
               rows={2}
               maxLength={1000}

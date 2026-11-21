@@ -6,6 +6,7 @@ import { useRef, useState, useTransition } from "react";
 
 import { askWorkspaceAI, confirmMappingLink, editProposalItem, reviseProposalItem } from "@/app/console-actions";
 import { ChatJump } from "@/components/console/onboarding/chat-jump";
+import type { AssistantTurn } from "@/lib/client-api";
 import { EngineerChat } from "@/components/console/onboarding/engineer-chat";
 import { appendTurns, truncateTurns, useChatTurns } from "@/lib/chat-store";
 import { FieldFlow, WORDS } from "@/components/console/onboarding/mapping-guide";
@@ -102,9 +103,9 @@ export function MappingStage({
 
   const visible = links.filter((l) => (filter === "All" ? true : filter === "Confirmed" ? l.confirmed : !l.confirmed && !l.unmappable));
 
-  const ask = (text: string) => {
-    const history = turns;
-    appendTurns(workspaceId, "mapping", { role: "user", text });
+  const ask = (text: string, earlier?: AssistantTurn[]) => {
+    const history = earlier ?? turns;
+    appendTurns(workspaceId, "mapping", { role: "user", text, intent: "ask" });
     setThinking(true);
     start(async () => {
       const res = await askWorkspaceAI(workspaceId, "mapping", text, history);
@@ -114,6 +115,13 @@ export function MappingStage({
       } else appendTurns(workspaceId, "mapping", { role: "assistant", text: res.ok ? "No answer." : res.error });
       setThinking(false);
     });
+  };
+
+  // Edit a question in place: ask it again from that message on, and clear what came after it.
+  const resend = (index: number, text: string) => {
+    const history = turns.slice(0, index);
+    truncateTurns(workspaceId, "mapping", index);
+    ask(text, history);
   };
 
   const saved = (key: string, res: { ok: boolean; error?: string; data?: any }, ok: string) => {
@@ -196,7 +204,7 @@ export function MappingStage({
           starters={["Which mappings need review?", `Explain ${WORDS[reviewable[0]?.a.archetype] ?? "the first link"}`]}
           onAsk={ask}
           onClear={clear}
-          onTruncate={(i) => truncateTurns(workspaceId, "mapping", i)}
+          onResend={resend}
         />
       </div>
       <ChatJump />

@@ -379,13 +379,14 @@ export function DiscoveryStage({
 
   const push = (s: Section, ...more: AssistantTurn[]) => appendTurns(workspaceId, `discovery:${s}`, ...more);
 
-  const ask = (text: string) => {
+  const ask = (text: string, again?: { history: AssistantTurn[]; cards: string[] }) => {
     const s = section;
-    const history = chat.turns;
-    push(s, { role: "user", text });
+    const history = again?.history ?? chat.turns;
+    const cardIds = again?.cards ?? mentions;
+    push(s, { role: "user", text, intent: "ask", cards: cardIds });
     setThinking(true);
     start(async () => {
-      const res = await askWorkspaceAI(workspaceId, "discovery", text, history, mentions);
+      const res = await askWorkspaceAI(workspaceId, "discovery", text, history, cardIds);
       if (res.ok && res.data) {
         const { answer, sources, grounded, unverified } = res.data;
         push(s, { role: "assistant", text: answer, check: { sources, grounded, unverified } });
@@ -394,16 +395,17 @@ export function DiscoveryStage({
     });
   };
 
-  const rerun = (text: string) => {
+  const rerun = (text: string, again?: { cards: string[] }) => {
     const s = section;
+    const cardIds = again?.cards ?? mentions;
     setPending(text);
-    if (mentions.length) {
+    if (cardIds.length) {
       // Only the cards named with @ may change, and the team approves each change.
       start(async () => {
-        const res = await suggestCardChanges(workspaceId, stepId, mentions, text);
+        const res = await suggestCardChanges(workspaceId, stepId, cardIds, text);
         push(
           s,
-          { role: "user", text },
+          { role: "user", text, intent: "suggest", cards: cardIds },
           {
             role: "assistant",
             text: res.ok
@@ -422,7 +424,7 @@ export function DiscoveryStage({
       const res = await reviseDiscoverySection(workspaceId, stepId, s, text);
       push(
         s,
-        { role: "user", text },
+        { role: "user", text, intent: "revise" },
         {
           role: "assistant",
           text: res.ok
@@ -433,6 +435,18 @@ export function DiscoveryStage({
       setPending("");
       if (res.ok) router.refresh();
     });
+  };
+
+  // Edit a question in place: ask it again from that message on, and clear what came after it.
+  const resend = (index: number, text: string) => {
+    const earlier = chat.turns[index];
+    if (!earlier) return;
+    const history = chat.turns.slice(0, index);
+    const cardIds = earlier.cards ?? [];
+    truncateTurns(workspaceId, `discovery:${section}`, index);
+    setSuggestion(null);
+    if (earlier.intent === "suggest") rerun(text, { cards: cardIds });
+    else ask(text, { history, cards: cardIds });
   };
 
   const applySuggestion = (picked: CardSuggestion["changes"], confirmLarge: boolean) => {
@@ -758,7 +772,7 @@ export function DiscoveryStage({
           scope={`Discovery / ${SECTIONS[section]}`}
           turns={chat.turns}
           onClear={chat.clear}
-          onTruncate={(i) => truncateTurns(workspaceId, `discovery:${section}`, i)}
+          onResend={resend}
           pending={pending}
           thinking={thinking}
           emptyTitle="What would you like to review?"
