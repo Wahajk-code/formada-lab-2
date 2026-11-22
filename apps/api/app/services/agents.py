@@ -14,6 +14,7 @@ from app.core.db import global_tx, tenant_tx
 from app.core.errors import Conflict, Invalid, NotFound
 from app.core.logging import get_logger
 from app.domain import agents as rules_agents
+from app.domain import onboarding as ob
 from app.domain.llm import validate_choice
 from app.domain.prompting import Prompt
 from app.integrations.llm import get_llm, parse_raw
@@ -99,7 +100,7 @@ async def translate_card(principal: Principal, card_id: uuid.UUID, language: str
     )
     out = result.parsed
     if out is None:
-        raise Conflict(f"translation failed: {result.error}")
+        raise Conflict(ob.ai_error(result.error, "try again"))
     # Code checks the model: same digits in every field, or the translation is refused.
     for field, text in original.items():
         if not rules_agents.translation_keeps_numbers(text, getattr(out, field)):

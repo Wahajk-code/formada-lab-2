@@ -20,6 +20,7 @@ from app.core.db import global_tx, tenant_tx
 from app.core.errors import Conflict, Invalid, NotFound
 from app.core.logging import get_logger
 from app.domain import config as cfg
+from app.domain import onboarding as ob_dom
 from app.integrations.llm import get_llm
 from app.models import Agent, AgentPrompt, Metric, RoleNode, Tenant
 from app.repositories import agents as agent_repo
@@ -86,7 +87,7 @@ async def _ask(
         tokens=result.input_tokens + result.output_tokens,
     )
     if result.parsed is None:
-        raise Conflict(f"the AI could not answer: {result.error or 'no answer'}")
+        raise Conflict(ob_dom.ai_error(result.error or "no answer", "ask again"))
     return result.parsed
 
 

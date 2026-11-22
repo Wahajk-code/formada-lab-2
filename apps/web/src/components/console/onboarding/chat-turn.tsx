@@ -14,11 +14,14 @@ import type { AssistantTurn } from "@/lib/client-api";
 export function ChatTurn({
   turn,
   canEdit,
+  elsewhere,
   onResend,
   onProgress,
 }: {
   turn: AssistantTurn;
   canEdit: boolean;
+  /** The page this message was written on, when it is not the one being shown. */
+  elsewhere?: string | null;
   /** Ask again with this text, from this message on. */
   onResend: (text: string) => void;
   onProgress: () => void;
@@ -102,7 +105,18 @@ export function ChatTurn({
     return (
       <li className="engineer-turn engineer-turn-user turn-hover">
         <div className="turn-col">
+          {(turn.attached ?? []).length > 0 && (
+            <div className="turn-attached" aria-label="Attached to this message">
+              {(turn.attached ?? []).map((a) => (
+                <span key={a.id} className="mention-chip is-sent">
+                  <span aria-hidden="true">@</span>
+                  {a.label}
+                </span>
+              ))}
+            </div>
+          )}
           <article aria-label="Your message">{turn.text}</article>
+          {elsewhere && <small className="turn-scope">Asked in {elsewhere}</small>}
           {tools}
         </div>
       </li>

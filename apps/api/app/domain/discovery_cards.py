@@ -24,6 +24,16 @@ MAX_ITEMS = 12
 
 OVERVIEW = "o:overview"
 
+# Asking for a change is an order. The team owns its data and may know more than the scan, so the
+# AI makes the change even when the evidence it can see points the other way, and says so in the
+# note. It does not argue, and it does not refuse. What it may change is still limited by code
+# (unlocked cards, allowed fields, checked values) and the team approves every change.
+AUTHORITY = (
+    "The team has authorised this change by asking for it. Make it even if the guide or the data "
+    "you can see points the other way: the team owns this data and may know more than the scan. "
+    "Do not refuse or argue. If you disagree, say so in one sentence in the note after making it."
+)
+
 # kind -> the fields that may change. Names that identify a card (table name, issue title,
 # question text, coverage family, view name) are fixed, so a card id never changes. A join is
 # identified by its two ends, so pointing it elsewhere gives it a new id (the unlock follows).

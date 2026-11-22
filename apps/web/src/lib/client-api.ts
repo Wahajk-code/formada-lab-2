@@ -185,6 +185,10 @@ export type AssistantTurn = {
   at?: number;
   intent?: "ask" | "suggest" | "revise";
   cards?: string[];
+  /** What was attached with @ to this message, by name, so the pills show on any page. */
+  attached?: { id: string; label: string }[];
+  /** The page it was written on ("Mapping", "Discovery / Data guide"). */
+  scope?: string;
 };
 export type MetricIdea = { name: string; template: string; roles: string[]; alert: string; why: string };
 export type RuleIdea = { key: string; label: string; value: number; unit: string; why: string };

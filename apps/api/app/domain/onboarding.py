@@ -1125,30 +1125,66 @@ def judge_sku_overlap(
     return report, entry
 
 
-def explain_failure(raw: str) -> str:
-    """A plain-words reason for a failed AI step, for the people running the console. The raw
-    technical error is kept next to it ("Details: ...")."""
+# The words each AI provider uses when the account has no credit or quota left. Checked first,
+# because the same error can also mention billing and keys.
+OUT_OF_CREDIT = (
+    "credit balance",
+    "credit is too low",
+    "insufficient_quota",
+    "insufficient credit",
+    "exceeded your current quota",
+    "out of credit",
+    "billing",
+    "payment required",
+    "purchase credits",
+)
+RETRY = "run this step again"
+GENERIC_FAILURE = "Something went wrong while the AI was working."
+
+
+def is_out_of_credit(raw: str) -> bool:
     t = (raw or "").lower()
+    return any(w in t for w in OUT_OF_CREDIT) or "402" in t.split()
+
+
+def explain_failure(raw: str, retry: str = RETRY) -> str:
+    """A plain-words reason for a failed AI call, for the people running the console. `retry` is
+    what to do next ("run this step again", "ask again"). The raw technical error is kept next to
+    it by `failure_text` ("Details: ...")."""
+    t = (raw or "").lower()
+    if is_out_of_credit(raw):
+        return (
+            "The AI account has run out of credit, so nothing that uses the AI works until it is "
+            "topped up. Add credit under Plans & Billing with the AI provider (Anthropic by "
+            f"default), then {retry}."
+        )
     if "401" in t or "authentication" in t or "invalid x-api-key" in t or "api key" in t:
         return (
             "The AI service rejected our key (invalid or missing). Ask whoever runs this server "
-            "to check the API key, then run this step again."
+            f"to check the API key, then {retry}."
         )
-    if "credit balance" in t or "billing" in t or "insufficient" in t:
-        return "The AI account is out of credit. Top it up, then run this step again."
-    if "429" in t or "rate_limit" in t or "rate limit" in t:
-        return "The AI service is rate limiting us. Wait a minute, then run this step again."
+    if "429" in t or "rate_limit" in t or "rate limit" in t or "resource_exhausted" in t:
+        return f"The AI service is rate limiting us. Wait a minute, then {retry}."
     if "529" in t or "overloaded" in t or any(f" {c}" in f" {t}" for c in ("500", "502", "503")):
-        return "The AI service is busy right now. Run this step again in a minute."
+        return f"The AI service is busy right now. Wait a minute, then {retry}."
     if "timed out" in t or "timeout" in t:
-        return "The AI took too long to answer. Run this step again; a shorter instruction helps."
+        return f"The AI took too long to answer. {retry.capitalize()}; a shorter request helps."
     if "cut off" in t or "max_tokens" in t or "schema" in t:
-        return "The AI's answer was cut off. Run this step again, or shorten the instructions."
+        return f"The AI's answer was cut off. {retry.capitalize()}, or shorten the request."
     if "refusal" in t:
-        return "The AI declined to answer. Reword the instructions and run this step again."
+        return f"The AI declined to answer. Reword the request and {retry}."
     if "restart" in t or "stopped" in t:
-        return "This step stopped before it finished. Run it again."
-    return "Something went wrong while the AI was working. Run this step again."
+        return f"This stopped before it finished. {retry.capitalize()}."
+    return f"{GENERIC_FAILURE} {retry.capitalize()}."
+
+
+def ai_error(raw: str | None, retry: str = "try again") -> str:
+    """What a person sees when an AI call fails outside a step run (chat, suggestions, edits): the
+    plain reason, and the technical details only when the reason is not one we know."""
+    reason = explain_failure(raw or "", retry)
+    if reason.startswith(GENERIC_FAILURE) and raw:
+        return f"{reason} (Details: {raw[:300]})"
+    return reason
 
 
 def failure_text(raw: str) -> str:

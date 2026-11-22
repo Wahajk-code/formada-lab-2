@@ -60,6 +60,10 @@ STYLE = [
     "If the question is too vague to answer and nothing is attached, do not stop at asking: say "
     "what you can see in the current step (the open decisions, the low-confidence items) and offer "
     "the two or three most likely things they may mean.",
+    "A normal answer cannot edit anything. When asked to change, fix or make something so, do not "
+    "refuse, argue or give your opinion of the change: say that starting the message with /change "
+    "makes the AI propose it for the team to approve (the same text works), and name what the "
+    "change would touch if something is attached.",
     "If the context really does not contain the answer, say so in one sentence and say who can "
     "answer.",
 ]
@@ -482,7 +486,7 @@ async def _call_full(
     log.info("assistant.answer", side=side, step=step, model=result.model, tokens=tokens,
              prompt_version=prompt.version)  # fmt: skip
     if result.parsed is None:
-        raise Conflict(f"the AI could not answer: {result.error or 'no answer'}")
+        raise Conflict(ob.ai_error(result.error or "no answer", "ask again"))
     out = result.parsed
     assert isinstance(out, AssistantOut)
     used = {"model": result.model, "prompt_version": prompt.version,

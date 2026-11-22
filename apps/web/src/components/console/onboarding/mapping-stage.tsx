@@ -11,7 +11,7 @@ import { WORDS } from "@/components/console/onboarding/mapping-guide";
 import { breakable, FactBar, fmt, Fold, humanDates, humanName, Lines, Section, shortName, Status, Sub, type Tone } from "@/components/console/onboarding/review-kit";
 import { Icon } from "@/components/ui/icon";
 import { appendTurns, truncateTurns, useChatTurns } from "@/lib/chat-store";
-import { missingNote, questionWithMentions } from "@/lib/mentions";
+import { contextOf, idsToSend, missingNote, questionWithMentions } from "@/lib/mentions";
 import type { AssistantTurn } from "@/lib/client-api";
 import type { OnboardingGuide, OnboardingStep } from "@/lib/console-api";
 import { cn } from "@/lib/utils";
@@ -74,13 +74,16 @@ export function MappingStage({ step, guide, workspaceId, can }: { step: Onboardi
   const percent = Math.round((confirmed / (reviewable.length || 1)) * 100);
 
   const [filter, setFilter] = useState<Filter>("All");
-  const { turns, clear } = useChatTurns(workspaceId, "mapping");
+  const { turns, clear } = useChatTurns(workspaceId);
   const [thinking, setThinking] = useState(false);
   const [busy, start] = useTransition();
   const [note, setNote] = useState<Record<string, { ok: boolean; text: string }>>({});
   const [instruction, setInstruction] = useState<Record<string, string>>({});
   const [sql, setSql] = useState<Record<string, string>>(() => Object.fromEntries((out.archetypes as any[]).map((a) => [a.archetype, a.source_sql])));
   const [mentioned, setMentioned] = useState<string[]>([]);
+  // Attachments the person removed from the conversation's context.
+  const [dropped, setDropped] = useState<string[]>([]);
+  const context = useMemo(() => contextOf(turns, dropped), [turns, dropped]);
   const list = useRef<HTMLDivElement>(null);
 
   const visible = links.filter((l) => (filter === "All" ? true : filter === "Confirmed" ? l.confirmed : !l.confirmed && !l.unmappable));
@@ -95,22 +98,63 @@ export function MappingStage({ step, guide, workspaceId, can }: { step: Onboardi
   const mentions = mentioned.filter((id) => mentionables.some((m) => m.id === id));
   const at = { mentioned: new Set(mentions), onMention: (id: string) => setMentioned((cur) => (cur.includes(id) || cur.length >= 8 ? cur : [...cur, id])) };
 
-  const ask = (text: string, earlier?: { history: AssistantTurn[]; cards: string[] }) => {
+  // One conversation for the whole onboarding: each message remembers the page it was written on.
+  const SCOPE = "Mapping";
+  const push = (...more: AssistantTurn[]) => appendTurns(workspaceId, SCOPE, ...more);
+  const labelFor = (id: string) => mentionables.find((m) => m.id === id)?.label ?? context.find((c) => c.id === id)?.label;
+  const attachedOf = (ids: string[]) => ids.map((id) => ({ id, label: labelFor(id) ?? id }));
+
+  const ask = (text: string, earlier?: { history: AssistantTurn[]; cards: string[]; attached: { id: string; label: string }[] }) => {
     const history = earlier?.history ?? turns;
-    const cards = earlier?.cards ?? mentions;
-    appendTurns(workspaceId, "mapping", { role: "user", text, intent: "ask", cards });
+    const fresh = earlier?.attached ?? attachedOf(mentions);
+    // The new attachments move onto this message; what was attached before stays in context.
+    const cards = earlier?.cards ?? idsToSend(fresh.map((a) => a.id), context);
+    setDropped((d) => d.filter((x) => !fresh.some((a) => a.id === x)));
+    push({ role: "user", text, intent: "ask", cards, attached: fresh });
     setThinking(true);
     start(async () => {
-      const labelOf = (id: string) => mentionables.find((m) => m.id === id)?.label;
-      const res = await askWorkspaceAI(workspaceId, "mapping", questionWithMentions(text, cards, labelOf), history, cards);
+      const res = await askWorkspaceAI(workspaceId, "mapping", questionWithMentions(text, cards, labelFor), history, cards);
       if (res.ok && res.data) {
         const { answer, sources: src, grounded, unverified } = res.data;
-        const note = missingNote(cards, res.data.mentions_missing, labelOf);
-        appendTurns(workspaceId, "mapping", { role: "assistant", text: note ? `${answer}
-
-${note}` : answer, check: { sources: src, grounded, unverified } });
-      } else appendTurns(workspaceId, "mapping", { role: "assistant", text: res.ok ? "No answer." : res.error });
+        const note = missingNote(cards, res.data.mentions_missing, labelFor);
+        push({ role: "assistant", text: note ? `${answer}\n\n${note}` : answer, check: { sources: src, grounded, unverified } });
+      } else push({ role: "assistant", text: res.ok ? "No answer." : res.error });
       setThinking(false);
+    });
+  };
+
+  // "/change ...": the AI is authorised to change the link, whatever it thinks of the change. It acts
+  // on the links and fields attached to this message, else on what is still in the context. The
+  // change is a new proposal, so the link needs a new confirmation.
+  const change = (text: string) => {
+    const named = mentions.length ? mentions : context.map((c) => c.id);
+    const mine = named.filter((id) => id.startsWith("m:"));
+    const say = (reply: string) => push({ role: "user", text: `/change ${text}`.trim(), intent: "revise", attached: attachedOf(named) }, { role: "assistant", text: reply });
+    if (!text) return say("Say what should change after /change, for example: /change use invoiced sales instead of placed.");
+    if (!mine.length) return say("Attach the link or the field you want changed with @, then start again with /change.");
+    const shapes = [...new Set(mine.map((id) => id.slice(2).split(".")[0]))].slice(0, 2);
+    const fields = mine.filter((id) => id.includes(".")).map((id) => id.slice(2).split(".")[1]);
+    const instruction = fields.length ? `About the field${fields.length > 1 ? "s" : ""} ${fields.join(", ")}: ${text}` : text;
+    setThinking(true);
+    start(async () => {
+      const done: string[] = [];
+      let failed: string | null = null;
+      for (const shape of shapes) {
+        const res = await reviseProposalItem(workspaceId, "mapping", step.id, shape, instruction);
+        if (!res.ok) {
+          failed = res.error ?? "Failed";
+          break;
+        }
+        const d = res.data as any;
+        const notes = [...(d?.errors ?? []).map((e: string) => `Error: ${e}`), ...(d?.warnings ?? []).map((w: string) => `Note: ${w}`)].slice(0, 2);
+        done.push(`${WORDS[shape] ?? shape}${notes.length ? ` (${notes.join(" ")})` : ""}`);
+      }
+      push(
+        { role: "user", text: `/change ${text}`, intent: "revise", cards: mine, attached: attachedOf(named) },
+        { role: "assistant", text: failed ? failed : `Changed ${done.join(" and ")} as a new proposal. Only ${done.length === 1 ? "this link" : "these links"} changed, and ${done.length === 1 ? "it needs" : "they need"} a new confirmation.` },
+      );
+      setThinking(false);
+      router.refresh();
     });
   };
 
@@ -118,8 +162,8 @@ ${note}` : answer, check: { sources: src, grounded, unverified } });
   const resend = (index: number, text: string) => {
     const history = turns.slice(0, index);
     const cards = turns[index]?.cards ?? [];
-    truncateTurns(workspaceId, "mapping", index);
-    ask(text, { history, cards });
+    truncateTurns(workspaceId, SCOPE, index);
+    ask(text, { history, cards, attached: turns[index]?.attached ?? [] });
   };
 
   const saved = (key: string, res: { ok: boolean; error?: string; data?: any }, ok: string) => {
@@ -433,6 +477,9 @@ ${note}` : answer, check: { sources: src, grounded, unverified } });
           onAsk={(text) => ask(text)}
           onClear={clear}
           onResend={resend}
+          onChange={change}
+          context={context}
+          onDropContext={(id) => setDropped((d) => [...d, id])}
           mentionables={mentionables}
           mentions={mentions}
           onMentions={setMentioned}

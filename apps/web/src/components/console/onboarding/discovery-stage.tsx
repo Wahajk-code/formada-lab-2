@@ -18,7 +18,7 @@ import {
 import { AddJoin, CardBar, CardEditor, ChangeReview, GroupBar, type CardCtx } from "@/components/console/onboarding/card-tools";
 import { ChatJump } from "@/components/console/onboarding/chat-jump";
 import { appendTurns, truncateTurns, useChatTurns } from "@/lib/chat-store";
-import { missingNote, questionWithMentions } from "@/lib/mentions";
+import { contextOf, idsToSend, missingNote, questionWithMentions } from "@/lib/mentions";
 import { cardId, cardList, groupIndex, type CardSuggestion } from "@/lib/discovery-cards";
 import { EngineerChat } from "@/components/console/onboarding/engineer-chat";
 import { cn } from "@/lib/utils";
@@ -291,11 +291,14 @@ export function DiscoveryStage({
   const router = useRouter();
   const [section, setSection] = useState<Section>("guide");
   // The conversation is saved in this browser per tab, until onboarding is done.
-  const chat = useChatTurns(workspaceId, `discovery:${section}`);
+  const chat = useChatTurns(workspaceId);
   const [pending, setPending] = useState("");
   const [thinking, setThinking] = useState(false);
   const [sent, setSent] = useState<Set<string>>(new Set());
   const [mentioned, setMentioned] = useState<string[]>([]);
+  // Attachments the person removed from the conversation's context.
+  const [dropped, setDropped] = useState<string[]>([]);
+  const context = useMemo(() => contextOf(chat.turns, dropped), [chat.turns, dropped]);
   const [editing, setEditing] = useState<string | null>(null);
   const [saved, setSaved] = useState<{ stepId: string; data: CardSuggestion } | null>(null);
   // A new version of the proposal (an edit, a lock, a rerun) makes an old suggestion stale.
@@ -382,31 +385,41 @@ export function DiscoveryStage({
   const viewTables = new Set((guide?.semantic_views ?? []).flatMap((v) => v.tables.map((t) => String(t.base_table ?? t.table).split(".").pop()!.toUpperCase())));
   const ready = (out.coverage as any[]).filter((c) => c.status === "present").length;
 
-  const push = (s: Section, ...more: AssistantTurn[]) => appendTurns(workspaceId, `discovery:${s}`, ...more);
+  // One conversation for the whole onboarding: each message remembers the page it was written on.
+  const scopeName = (s: Section) => `Discovery / ${SECTIONS[s]}`;
+  const push = (s: Section, ...more: AssistantTurn[]) => appendTurns(workspaceId, scopeName(s), ...more);
+  const labelFor = (id: string) => cardRefs.find((c) => c.id === id)?.label ?? facts.find((f) => f.id === id)?.label ?? groups[id]?.label;
+  const attachedOf = (ids: string[]) => ids.map((id) => ({ id, label: labelFor(id) ?? id }));
 
-  const ask = (text: string, again?: { history: AssistantTurn[]; cards: string[] }) => {
+  const ask = (text: string, again?: { history: AssistantTurn[]; cards: string[]; attached: { id: string; label: string }[] }) => {
     const s = section;
     const history = again?.history ?? chat.turns;
-    const cardIds = again?.cards ?? mentions;
-    push(s, { role: "user", text, intent: "ask", cards: cardIds });
+    const fresh = again?.attached ?? attachedOf(mentions);
+    // The new attachments move onto this message; what was attached before stays in context.
+    const cardIds = again?.cards ?? idsToSend(
+      fresh.map((a) => a.id),
+      context,
+    );
+    setDropped((d) => d.filter((x) => !fresh.some((a) => a.id === x)));
+    push(s, { role: "user", text, intent: "ask", cards: cardIds, attached: fresh });
     setThinking(true);
     start(async () => {
-      const labelOf = (id: string) => cardRefs.find((c) => c.id === id)?.label ?? facts.find((f) => f.id === id)?.label ?? groups[id]?.label;
-      const res = await askWorkspaceAI(workspaceId, "discovery", questionWithMentions(text, cardIds, labelOf), history, cardIds);
+      const label = (id: string) => labelFor(id) ?? context.find((c) => c.id === id)?.label;
+      const res = await askWorkspaceAI(workspaceId, "discovery", questionWithMentions(text, cardIds, label), history, cardIds);
       if (res.ok && res.data) {
         const { answer, sources, grounded, unverified } = res.data;
-        const note = missingNote(cardIds, res.data.mentions_missing, labelOf);
-        push(s, { role: "assistant", text: note ? `${answer}
-
-${note}` : answer, check: { sources, grounded, unverified } });
+        const note = missingNote(cardIds, res.data.mentions_missing, label);
+        push(s, { role: "assistant", text: note ? `${answer}\n\n${note}` : answer, check: { sources, grounded, unverified } });
       } else push(s, { role: "assistant", text: res.ok ? "No answer." : res.error });
       setThinking(false);
     });
   };
 
-  const rerun = (text: string, again?: { cards: string[] }) => {
+  // Changes only ever touch cards, never measured facts, and the team approves each one.
+  const rerun = (text: string, again?: { cards: string[]; attached?: { id: string; label: string }[] }) => {
     const s = section;
-    const cardIds = (again?.cards ?? mentions).filter((id) => !id.startsWith("f:"));
+    const cardIds = (again?.cards ?? editable).filter((id) => !id.startsWith("f:") && !id.startsWith("m:"));
+    const shown = again?.attached ?? attachedOf(cardIds);
     setPending(text);
     if (cardIds.length) {
       // Only the cards named with @ may change, and the team approves each change.
@@ -414,7 +427,7 @@ ${note}` : answer, check: { sources, grounded, unverified } });
         const res = await suggestCardChanges(workspaceId, stepId, cardIds, text);
         push(
           s,
-          { role: "user", text, intent: "suggest", cards: cardIds },
+          { role: "user", text, intent: "suggest", cards: cardIds, attached: shown },
           {
             role: "assistant",
             text: res.ok
@@ -446,16 +459,31 @@ ${note}` : answer, check: { sources, grounded, unverified } });
     });
   };
 
+  // "/change ...": the AI is authorised to propose the change, whatever it thinks of it. It acts on
+  // what is attached to this message, else on what is still in the conversation's context.
+  const change = (text: string) => {
+    const s = section;
+    const named = mentions.length ? mentions : context.map((c) => c.id);
+    const target = named.filter((id) => !id.startsWith("f:") && !id.startsWith("m:"));
+    const say = (reply: string) => {
+      push(s, { role: "user", text: `/change ${text}`.trim(), intent: "revise", attached: attachedOf(named) }, { role: "assistant", text: reply });
+    };
+    if (!text) return say("Say what should change after /change, for example: /change mark receipts as ready.");
+    if (!target.length && named.length) return say("What is attached cannot be changed here: facts are measured from the warehouse, and mapping links change on the Mapping step. Attach a card to change it.");
+    if (!target.length && everythingLocked) return say("Everything in this tab is locked and nothing is attached, so there is nothing I may change. Unlock a card or attach one with @, then try again.");
+    rerun(text, { cards: target, attached: attachedOf(target) });
+  };
+
   // Edit a question in place: ask it again from that message on, and clear what came after it.
   const resend = (index: number, text: string) => {
     const earlier = chat.turns[index];
     if (!earlier) return;
     const history = chat.turns.slice(0, index);
     const cardIds = earlier.cards ?? [];
-    truncateTurns(workspaceId, `discovery:${section}`, index);
+    truncateTurns(workspaceId, "", index);
     setSuggestion(null);
-    if (earlier.intent === "suggest") rerun(text, { cards: cardIds });
-    else ask(text, { history, cards: cardIds });
+    if (earlier.intent === "suggest") rerun(text, { cards: cardIds, attached: earlier.attached });
+    else ask(text, { history, cards: cardIds, attached: earlier.attached ?? [] });
   };
 
   const applySuggestion = (picked: CardSuggestion["changes"], confirmLarge: boolean) => {
@@ -717,8 +745,11 @@ ${note}` : answer, check: { sources, grounded, unverified } });
           mentions={mentions}
           onMentions={setMentioned}
           extra={suggestion ? <ChangeReview suggestion={suggestion} applying={applying} onApply={applySuggestion} onDiscard={() => setSuggestion(null)} /> : undefined}
-          onAsk={ask}
+          onAsk={(text) => ask(text)}
           onRerun={rerun}
+          onChange={change}
+          context={context}
+          onDropContext={(id) => setDropped((d) => [...d, id])}
         />
       </section>
       <ChatJump count={mentions.length} />

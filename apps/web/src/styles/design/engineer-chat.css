@@ -189,3 +189,16 @@ body:has(.engineer-chat-dialog[open]) { overflow: hidden; }
 .turn-edit-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 8px; }
 .turn-edit-actions small { margin-right: auto; color: var(--fd-secondary); font-size: 12px; }
 .turn-edit-actions .btn { padding: 7px 16px; border-radius: 999px; font-size: 13px; }
+
+/* The loading row: the animated mark sits under the label, centred */
+.engineer-thinking { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 4px 18px 2px; text-align: center; }
+.engineer-thinking .thinking-mark { display: block; margin: 2px auto 0; }
+.engineer-thinking .thinking-mark svg { display: block; width: 100%; height: 100%; }
+
+/* Attachments: they move onto the message that was sent; the ones still in context sit above the input */
+.turn-attached { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 5px; margin-bottom: 5px; }
+.mention-chip.is-sent { background: #fff; border: 1px solid #ddd3fb; padding-right: 9px; }
+.mention-context { align-items: center; padding-bottom: 0; }
+.mention-context > small { color: var(--fd-secondary); font-size: 11.5px; font-weight: 650; }
+.mention-chip.is-context { background: var(--fd-surface); color: var(--fd-secondary); border: 1px dashed var(--fd-border); }
+.turn-scope { display: block; margin-top: 2px; color: var(--fd-secondary); font-size: 11.5px; }

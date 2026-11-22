@@ -452,7 +452,7 @@ async def _ask_drafter(
         timeout_s=onb.AGENT_TIMEOUT_S,
     )
     if result.parsed is None:
-        raise Conflict(f"the AI did not return a usable calculation: {result.error or 'no answer'}")
+        raise Conflict(ob.ai_error(result.error or "no answer", "try again"))
     assert isinstance(result.parsed, CustomDraftOut)
     return result.parsed
 

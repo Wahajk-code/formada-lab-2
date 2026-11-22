@@ -6,6 +6,7 @@ import { ChatTurn } from "@/components/console/onboarding/chat-turn";
 import { ThinkingMark } from "@/components/console/onboarding/thinking-mark";
 import { Icon } from "@/components/ui/icon";
 import type { AssistantTurn } from "@/lib/client-api";
+import { CHANGE_WORD, isChange, withoutChangeWord } from "@/lib/mentions";
 
 export type RerunConfig = {
   disabled: boolean;
@@ -39,6 +40,11 @@ type Props = {
   onClear?: () => void;
   /** Ask again with an edited message, from that message on (the messages below are cleared). */
   onResend?: (index: number, text: string) => void;
+  /** What was attached earlier and still counts as context (not in the input any more). */
+  context?: { id: string; label: string }[];
+  onDropContext?: (id: string) => void;
+  /** The message started with /change: the AI is authorised to propose the change. */
+  onChange?: (text: string) => void;
 };
 
 /** `note` replaces the chip's hover text (for example "Measured: read-only"). */
@@ -93,6 +99,9 @@ function Chat({
   extra,
   onClear,
   onResend,
+  context = [],
+  onDropContext,
+  onChange,
   draft,
   setDraft,
   expanded,
@@ -133,8 +142,12 @@ function Chat({
     if (!text || busy) return;
     if (intent === "rerun" && (!rerun || rerun.disabled || !onRerun)) return;
     setDraft("");
-    if (intent === "rerun") onRerun?.(text);
+    // What was attached moves onto the message that is sent, so the input starts clean. It stays in
+    // the conversation's context (see `context`).
+    if (intent === "ask" && onChange && isChange(text)) onChange(withoutChangeWord(text));
+    else if (intent === "rerun") onRerun?.(text);
     else onAsk(text);
+    onMentions?.([]);
   };
 
   return (
@@ -162,7 +175,7 @@ function Chat({
         {hasConversation ? (
           <ol className="engineer-chat-log" role="log" aria-label="Conversation history" aria-live="polite" aria-relevant="additions text">
             {turns.map((t, i) => (
-              <ChatTurn key={`${i}:${t.at ?? 0}`} turn={t} canEdit={Boolean(onResend) && !busy} onResend={(text) => onResend?.(i, text)} onProgress={follow} />
+              <ChatTurn key={`${i}:${t.at ?? 0}`} turn={t} canEdit={Boolean(onResend) && !busy && (!t.scope || t.scope === scope)} elsewhere={t.scope && t.scope !== scope ? t.scope : null} onResend={(text) => onResend?.(i, text)} onProgress={follow} />
             ))}
             {busy && (
               <>
@@ -175,7 +188,7 @@ function Chat({
                   <span className="engineer-turn-mark" aria-hidden="true">
                     <Icon name="sparkles" size={18} />
                   </span>
-                  <article>
+                  <article className="engineer-thinking">
                     <strong>Formada assistant</strong>
                     <ThinkingMark label={pending ? "Rerunning this section" : "The assistant is thinking"} />
                   </article>
@@ -210,6 +223,22 @@ function Chat({
             submit("ask");
           }}
         >
+          {context.length > 0 && (
+            <div className="mention-chips mention-context" aria-label="Still in the conversation's context">
+              <small>In context</small>
+              {context.map((c) => (
+                <span key={c.id} className="mention-chip is-context" title="Attached earlier. It stays in the conversation until you remove it.">
+                  <span aria-hidden="true">@</span>
+                  {c.label}
+                  {onDropContext && (
+                    <button type="button" aria-label={`Remove ${c.label} from the context`} onClick={() => onDropContext(c.id)}>
+                      <Icon name="x" size={12} />
+                    </button>
+                  )}
+                </span>
+              ))}
+            </div>
+          )}
           {mentions.length > 0 && (
             <div className="mention-chips" aria-label="Cards in this message">
               {mentions.map((id) => {
@@ -307,6 +336,14 @@ function Chat({
           <p className="engineer-chat-note">
             <Icon name={rerun.locked ? "lock" : "info-circle"} size={15} />
             <span>{rerun.hint}</span>
+          </p>
+        )}
+        {onChange && (
+          <p className="engineer-chat-note">
+            <Icon name="pen" size={15} />
+            <span>
+              Start a message with <b>{CHANGE_WORD}</b> to have the AI change what you attached, whatever it thinks of the change. You see every change before it is applied.
+            </span>
           </p>
         )}
         {onClear && turns.length > 0 && !busy && (

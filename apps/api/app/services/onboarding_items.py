@@ -331,7 +331,13 @@ async def revise_item(
         agent, prompt = found
         choice = await _choice(s, agent)
     user = json.dumps(
-        {"step": step, "item": item, "instruction": instruction, "context": context},
+        {
+            "step": step,
+            "item": item,
+            "authority": dc.AUTHORITY,
+            "instruction": instruction,
+            "context": context,
+        },
         ensure_ascii=False,
         default=str,
     )
@@ -352,7 +358,7 @@ async def revise_item(
         tokens=result.input_tokens + result.output_tokens,
     )
     if result.parsed is None:
-        raise Conflict(f"the AI could not revise it: {result.error or 'no answer'}")
+        raise Conflict(ob.ai_error(result.error or "no answer", "try again"))
     revised = result.parsed.model_dump()
     said = re.sub(r"\s+", " ", instruction)
     out = await _save(actor, tenant_id, step, base, key, revised, f"{key} revised by AI: {said}")
@@ -564,7 +570,13 @@ async def revise_section(
         "rule": "change only what the instruction asks; keep every other entry as given",
     }
     user = json.dumps(
-        {"step": "discovery", "item": current, "instruction": instruction, "context": context},
+        {
+            "step": "discovery",
+            "item": current,
+            "authority": dc.AUTHORITY,
+            "instruction": instruction,
+            "context": context,
+        },
         ensure_ascii=False,
         default=str,
     )
@@ -579,7 +591,7 @@ async def revise_section(
         tokens=result.input_tokens + result.output_tokens,
     )
     if result.parsed is None:
-        raise Conflict(f"the AI could not revise it: {result.error or 'no answer'}")
+        raise Conflict(ob.ai_error(result.error or "no answer", "try again"))
     revised = apply_section(out, section, result.parsed.model_dump(), profile)
     data = dc.restore_locked(revised, out)
     said = re.sub(r"\s+", " ", instruction)
@@ -806,6 +818,7 @@ async def suggest_card_changes(
         {
             "step": "discovery",
             "task": "suggest changes to the cards in editable_cards, nothing else",
+            "authority": dc.AUTHORITY,
             "instruction": instruction,
             "editable_cards": [entry(i) for i in editable],
             "locked_cards_read_only": [entry(i, True) for i in fixed],
@@ -832,7 +845,7 @@ async def suggest_card_changes(
         tokens=result.input_tokens + result.output_tokens,
     )
     if result.parsed is None:
-        raise Conflict(f"the AI could not suggest changes: {result.error or 'no answer'}")
+        raise Conflict(ob.ai_error(result.error or "no answer", "try again"))
     proposed = [c.model_dump() for c in result.parsed.changes][:40]
     allowed, refused = dc.filter_ai_changes(out, editable, proposed)
     _, applied, more = dc.apply_changes(out, allowed, lock=False, profile=profile)
