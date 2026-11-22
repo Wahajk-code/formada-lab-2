@@ -57,8 +57,17 @@ export const fmt = {
   },
 };
 
-/** Show ISO dates inside AI text the way people read them. The stored text is not changed. */
-export const humanDates = (text?: string | null) => String(text ?? "").replace(/\b(\d{4})-(\d{2})-(\d{2})\b/g, (d) => fmt.date(d));
+/** Older guides say a view's facts were "named in the view, not measured". With semantic views as
+ * the only source that is understood and says nothing, so it is not shown (the stored text stays). */
+const UNMEASURED = /,?\s*(?:is |are )?named in (?:the |their |this )?(?:[\w' ]{0,25}?)views?,?\s*not measured\.?/gi;
+/** A caveat that only says a fact table was not measured: nothing to show. */
+export const isUnmeasuredNote = (line: string) => /^\s*[\w.]+:?\s*(?:is |are )?named in (?:the |their |this )?(?:[\w' ]{0,25}?)views?,?\s*not measured\.?\s*$/i.test(line);
+
+/** Show ISO dates inside AI text the way people read them, and leave out the "not measured" boilerplate. The stored text is not changed. */
+export const humanDates = (text?: string | null) =>
+  String(text ?? "")
+    .replace(UNMEASURED, " in the view.")
+    .replace(/\b(\d{4})-(\d{2})-(\d{2})\b/g, (d) => fmt.date(d));
 
 const cap = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) : s);
 /** SCHEMA.DIM_RETAIL_GROUP -> Retail group; SALES_INVOICED -> Sales invoiced. */

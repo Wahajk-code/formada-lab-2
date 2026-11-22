@@ -12,6 +12,7 @@ import {
   Fold,
   humanDates,
   humanName,
+  isUnmeasuredNote,
   Lines,
   makeNamer,
   Name,
@@ -53,7 +54,7 @@ const USE_FOR: Record<string, { tone: "ready" | "info" | "missing"; word: string
 /** "One row is the stock of ... 3,428,183 rows." -> "the stock of ..." */
 const grainText = (g: string) =>
   String(g ?? "")
-    .replace(/^(one( row)?( is| per)?\s+)/i, "")
+    .replace(/^one row (?:is|per)\s+/i, "")
     .replace(/\s*[\d,.]+\s+rows\.?\s*$/i, "")
     .replace(/\.$/, "");
 /** The customer's views are the normal source (ADR 0033); a table read directly is the exception. */
@@ -402,9 +403,9 @@ export function FullGuide({ out, guide, cards, onResolve }: { out: any; guide: O
                         </span>
                         <span role="cell">
                           <Status tone="info">Customer view</Status>
-                          <small className="rv-muted">
-                            {t.measured?.first_date ? `Measured ${fmt.range(String(t.measured.first_date), String(t.measured.last_date ?? ""), true)}` : "Not measured yet"}
-                          </small>
+                          {t.measured?.first_date && (
+                            <small className="rv-muted">Data {fmt.range(String(t.measured.first_date), String(t.measured.last_date ?? ""), true)}</small>
+                          )}
                         </span>
                         <FactBar id={`f:vtable:${t.table}`} ctx={cards} />
                       </div>
@@ -576,14 +577,14 @@ export function FullGuide({ out, guide, cards, onResolve }: { out: any; guide: O
                   <Lines
                     rows={[
                       ["What it models", humanDates(v.purpose)],
-                      ["One row is", grainText(v.grain)],
+                      ["What one row is", cap(grainText(v.grain))],
                       ["Size", graph ? `${fmt.plural(graph.tables, "table")}, ${fmt.plural(graph.links, "link")}${graph.unlinked_tables?.length ? `, ${graph.unlinked_tables.length} not linked` : ""}` : null],
                       ["Covers", (v.families ?? []).length ? (v.families as string[]).map(familyName).join(", ") : null],
                       [
                         "Cannot answer",
-                        (v.caveats ?? []).length ? (
+                        (v.caveats as string[] | undefined)?.some((c) => !isUnmeasuredNote(c)) ? (
                           <ul className="rv-list">
-                            {(v.caveats as string[]).map((c) => (
+                            {(v.caveats as string[]).filter((c) => !isUnmeasuredNote(c)).map((c) => (
                               <li key={c}>{humanDates(c)}</li>
                             ))}
                           </ul>

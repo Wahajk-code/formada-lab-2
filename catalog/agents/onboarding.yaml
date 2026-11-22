@@ -983,6 +983,13 @@ agents:
           - Inventory is a view like the others. Look for its fact (stock by item, location and snapshot
             date), its date field and its item and location dimensions, and say which are there. If no view
             carries stock, inventory is missing and the question asks for a view that does.
+          - Do not point out that a view's facts were "not measured" or "only named in the view": that is
+            understood and says nothing. Never write the words "not measured" or "named in the view", and
+            add no caveat only because code did not measure a fact table. A family is present when a view
+            carries a fact for it with its measures, a date field and its item or location keys, whether
+            or not code measured it. Use partial only when something specific is missing, and say what
+            (for example "no snapshot date" or "no on-order measure"). Evidence states what the view
+            carries (what one row is, the measures) and adds dates and rows only when code measured them.
 
   - key: data_mapper
     name: Data mapper
@@ -2221,6 +2228,8 @@ agents:
           - The customer's data reaches us through semantic views only (ADR 0033), for every family, stock
             included. Never suggest reading the tables under a view or asking for access to them; when
             something is missing, say the customer should add it to the view and name the table and field.
+          - Do not say that a view's facts were "not measured" or "only named in the view": that is
+            understood. Say what the view carries; mention measurement only when dates or row counts help.
   - key: custom_metric_drafter
     name: Custom metric drafter
     kind: onboarding
