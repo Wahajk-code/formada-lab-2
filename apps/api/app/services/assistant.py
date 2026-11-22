@@ -21,6 +21,7 @@ from app.domain.config import SCHEMA, coerce
 from app.domain.llm import PRICES, estimated_cost
 from app.integrations.llm import get_llm
 from app.models import (
+    AgentPrompt,
     ArchetypeMapping,
     DataArchetype,
     Metric,
@@ -62,6 +63,10 @@ STYLE = [
     "If the context really does not contain the answer, say so in one sentence and say who can "
     "answer.",
 ]
+# From this prompt version on, the answer-style rules are part of the prompt itself (versioned,
+# comparable, rolled back from the console). Older versions get STYLE with the request, so
+# nothing changes until the team activates the new version. Remove STYLE once v4 is active.
+RULES_IN_PROMPT = 4
 QUESTION_MAX = 2000
 HISTORY_TURNS = 20
 CONTEXT_LIMIT = 450_000  # characters; past this the largest parts are slimmed (see _fit)
@@ -435,10 +440,17 @@ def _history(history: list[Turn]) -> str:
     return "\n".join(f"{t.role}: {t.text[:4000]}" for t in history[-HISTORY_TURNS:])
 
 
-async def _call(
+def style_for(prompt_version: int) -> list[str]:
+    """The rules sent with the request: none once the prompt carries them."""
+    return [] if prompt_version >= RULES_IN_PROMPT else STYLE
+
+
+async def _call_full(
     tenant_id: uuid.UUID, side: str, step: str, question: str, ctx: dict[str, Any],
-    history: list[Turn],
-) -> AssistantOut:  # fmt: skip
+    history: list[Turn], version: int | None = None,
+) -> tuple[AssistantOut, dict[str, Any]]:  # fmt: skip
+    """The answer and what it took. `version` runs a chosen prompt version (for comparisons);
+    otherwise the active one."""
     question = question.strip()
     if not question:
         raise Invalid("ask a question")
@@ -449,24 +461,40 @@ async def _call(
         if found is None:
             raise Conflict(f"agent {AGENT} is not loaded: run make seed")
         agent, prompt = found
+        if version is not None:
+            chosen = await s.get(AgentPrompt, (AGENT, version))
+            if chosen is None:
+                raise Conflict(f"{AGENT} has no version {version}")
+            prompt = chosen
         choice = await _choice(s, agent)
-    user = json.dumps(
-        {"asker": side, "step": step, "context": ctx, "conversation": _history(history),
-         "answer_style": STYLE, "question": question},
-        ensure_ascii=False, default=str, separators=(",", ":"),
-    )  # fmt: skip
+    payload: dict[str, Any] = {"asker": side, "step": step, "context": ctx,
+                               "conversation": _history(history)}  # fmt: skip
+    if rules := style_for(prompt.version):
+        payload["answer_style"] = rules
+    payload["question"] = question
+    user = json.dumps(payload, ensure_ascii=False, default=str, separators=(",", ":"))
     fake = AssistantOut(answer="(local fake model) " + question, metric_suggestions=[],
                         rule_suggestions=[])  # fmt: skip
     result = await get_llm(choice.provider, choice.model).structured(
         prompt.body, user, AssistantOut, fake=fake, effort="low", timeout_s=180
     )
-    log.info("assistant.answer", side=side, step=step, model=result.model,
-             tokens=result.input_tokens + result.output_tokens)  # fmt: skip
+    tokens = result.input_tokens + result.output_tokens
+    log.info("assistant.answer", side=side, step=step, model=result.model, tokens=tokens,
+             prompt_version=prompt.version)  # fmt: skip
     if result.parsed is None:
         raise Conflict(f"the AI could not answer: {result.error or 'no answer'}")
     out = result.parsed
     assert isinstance(out, AssistantOut)
-    return out
+    used = {"model": result.model, "prompt_version": prompt.version,
+            "input_tokens": result.input_tokens, "output_tokens": result.output_tokens}  # fmt: skip
+    return out, used
+
+
+async def _call(
+    tenant_id: uuid.UUID, side: str, step: str, question: str, ctx: dict[str, Any],
+    history: list[Turn],
+) -> AssistantOut:  # fmt: skip
+    return (await _call_full(tenant_id, side, step, question, ctx, history))[0]
 
 
 def unread_mentions(asked: list[str], found: list[dict[str, Any]]) -> list[str]:
@@ -497,10 +525,11 @@ def mapping_mentions(links: list[dict[str, Any]], ids: list[str]) -> list[dict[s
     return found
 
 
-async def team_ask(
-    tenant_id: uuid.UUID, step: str, question: str, history: list[Turn],
-    cards: list[str] | None = None,
-) -> dict[str, Any]:  # fmt: skip
+async def team_context_for(
+    tenant_id: uuid.UUID, cards: list[str] | None = None
+) -> tuple[dict[str, Any], list[str]]:
+    """The context the team chat is given, with the items attached by @ read in full. Returns the
+    context and the attached ids it could not read."""
     ctx = await _team_context(tenant_id)
     missing: list[str] = []
     if cards:
@@ -516,6 +545,14 @@ async def team_ask(
         missing = unread_mentions(cards, found)
         if missing:
             ctx["mentions_not_found"] = missing
+    return ctx, missing
+
+
+async def team_ask(
+    tenant_id: uuid.UUID, step: str, question: str, history: list[Turn],
+    cards: list[str] | None = None,
+) -> dict[str, Any]:  # fmt: skip
+    ctx, missing = await team_context_for(tenant_id, cards)
     out = await _call(tenant_id, "team", step, question, ctx, history)
     return {"answer": out.answer, **_check(out, ctx), "mentions_missing": missing}
 

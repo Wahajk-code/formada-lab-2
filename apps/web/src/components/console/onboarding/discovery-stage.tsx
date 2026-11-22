@@ -380,7 +380,6 @@ export function DiscoveryStage({
     );
   const viewCount = guide?.semantic_views?.length ?? 0;
   const viewTables = new Set((guide?.semantic_views ?? []).flatMap((v) => v.tables.map((t) => String(t.base_table ?? t.table).split(".").pop()!.toUpperCase())));
-  const throughViews = [...viewTables].filter((t) => !tables.some((x) => x.table.split(".").pop()!.toUpperCase() === t)).length;
   const ready = (out.coverage as any[]).filter((c) => c.status === "present").length;
 
   const push = (s: Section, ...more: AssistantTurn[]) => appendTurns(workspaceId, `discovery:${s}`, ...more);
@@ -496,13 +495,15 @@ ${note}` : answer, check: { sources, grounded, unverified } });
             <Icon name="database" size={16} />
             <b>{guide?.profile.database ?? "Warehouse"}</b>
           </span>
-          <span>
-            <b>{tables.length}</b> {tables.length === 1 ? "table" : "tables"} read directly{schemas.length > 1 ? ` in ${schemas.length} schemas` : ""}
-          </span>
+          {tables.length > 0 && (
+            <span>
+              <b>{tables.length}</b> {tables.length === 1 ? "table" : "tables"} read directly{schemas.length > 1 ? ` in ${schemas.length} schemas` : ""}
+            </span>
+          )}
           {viewCount > 0 && (
             <span>
               <b>{viewCount}</b> customer {viewCount === 1 ? "view" : "views"}
-              {throughViews > 0 && ` reaching ${throughViews} more tables`}
+              {viewTables.size > 0 && ` with ${viewTables.size} tables`}
             </span>
           )}
           <span>

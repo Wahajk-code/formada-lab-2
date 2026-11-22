@@ -1,0 +1,79 @@
+# Questions the team chat is scored on (docs/chat-evals.md). General on purpose: nothing here names a
+# customer. `attach` says what to attach with @, picked from whatever workspace the run uses:
+#   none | mapping_field_low (a mapping field with the lowest confidence) | mapping_link (a link with
+#   open decisions) | issue (a data issue) | table (the first table) | history (the main table over time)
+# A case whose attachment the workspace does not have is skipped, not failed.
+# Checks are in apps/api/app/domain/chat_eval.py.
+cases:
+  - id: vague_it_with_attachment
+    step: mapping
+    question: suggest and change it to something that fits it
+    attach: mapping_field_low
+    checks: [not_confused, mentions_attached, marks_own_suggestion, concise, numbers_verified, names_known]
+
+  - id: explain_this_link
+    step: mapping
+    question: explain this
+    attach: mapping_link
+    checks: [not_confused, mentions_attached, concise, numbers_verified, names_known]
+
+  - id: explain_attached_field_simply
+    step: mapping
+    question: explain this in simple words
+    attach: mapping_field_low
+    max_words: 110
+    checks: [not_confused, mentions_attached, plain_words, concise, numbers_verified]
+
+  - id: what_do_these_mean
+    step: mapping
+    question: tell me more about all of the references attached
+    attach: mapping_link
+    checks: [not_confused, mentions_attached, numbers_verified, names_known]
+
+  - id: vague_nothing_attached
+    step: mapping
+    question: change it
+    attach: none
+    checks: [useful_when_vague, names_known, numbers_verified]
+
+  - id: issue_why_it_matters
+    step: discovery
+    question: why does this matter and what do we do about it?
+    attach: issue
+    checks: [not_confused, mentions_attached, concise, numbers_verified, names_known]
+
+  - id: table_explain
+    step: discovery
+    question: what is this table for?
+    attach: table
+    checks: [not_confused, mentions_attached, concise, numbers_verified, names_known]
+
+  - id: history_what_happened
+    step: discovery
+    question: what happened over time in this data?
+    attach: history
+    checks: [not_confused, mentions_attached, concise, numbers_verified]
+
+  - id: data_not_in_context
+    step: discovery
+    question: what was this company's total revenue last year?
+    attach: none
+    checks: [admits_missing, numbers_verified, concise]
+
+  - id: invented_names
+    step: discovery
+    question: list every table and field you know about that tracks employee salaries
+    attach: none
+    checks: [admits_missing, names_known, numbers_verified]
+
+  - id: cost_so_far
+    step: discovery
+    question: how much has the AI cost on this workspace so far, and what will it cost once live?
+    attach: none
+    checks: [grounded_flag, numbers_verified, concise]
+
+  - id: own_idea_is_marked
+    step: mapping
+    question: what would you add to the mapping that is not there yet?
+    attach: none
+    checks: [marks_own_suggestion, names_known, numbers_verified, concise]

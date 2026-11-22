@@ -56,9 +56,9 @@ const grainText = (g: string) =>
     .replace(/^(one( row)?( is| per)?\s+)/i, "")
     .replace(/\s*[\d,.]+\s+rows\.?\s*$/i, "")
     .replace(/\.$/, "");
-/** "6 tables read directly", "11 tables, only through a view", "1 read directly, 1 through a view". */
+/** The customer's views are the normal source (ADR 0033); a table read directly is the exception. */
 const tableCount = (direct: number, view: number) =>
-  !view ? fmt.plural(direct, "table") + " read directly" : !direct ? `${fmt.plural(view, "table")}, only through a view` : `${direct} read directly, ${view} through a view`;
+  !direct ? `${fmt.plural(view, "table")} in the customer's view` : !view ? `${fmt.plural(direct, "table")} read directly` : `${view} in the customer's view, ${direct} read directly`;
 const cap = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) : s);
 /** "The table contains records of shipped sales lines, ..." -> "Shipped sales lines, ..." (first sentence). */
 const holds = (comment?: string | null) =>
@@ -349,7 +349,7 @@ export function FullGuide({ out, guide, cards, onResolve }: { out: any; guide: O
 
             {(s.base.length > 0 || s.viewOnly.length > 0) && (
               <div className="rv-block">
-                <Sub title="Tables" note={`${s.base.length} read directly${s.viewOnly.length ? ` · ${s.viewOnly.length} only through a view` : ""}`} tools={cards && <GroupBar gid={`g:tables:${s.key}`} ctx={cards} />} />
+                <Sub title="Tables" note={tableCount(s.base.length, s.viewOnly.length)} tools={cards && <GroupBar gid={`g:tables:${s.key}`} ctx={cards} />} />
                 {(s.base.length > 0 || s.viewFacts.length > 0) && (
                   <div className="rv-tables" role="table" aria-label={`${s.label} tables`}>
                     <div className="rv-tr rv-th" role="row">
@@ -381,7 +381,7 @@ export function FullGuide({ out, guide, cards, onResolve }: { out: any; guide: O
                               <small className="rv-muted">{p?.columns.length ?? "–"} fields</small>
                             </span>
                             <span role="cell">
-                              <Status tone="ready">Read directly</Status>
+                              <Status tone="info">Table</Status>
                               {inView && <small className="rv-muted">Also in a customer view</small>}
                             </span>
                             {cards && <CardBar id={id} ctx={cards} />}
@@ -401,7 +401,10 @@ export function FullGuide({ out, guide, cards, onResolve }: { out: any; guide: O
                           <small className="rv-muted">{fmt.plural(t.dimensions.length, "field")}</small>
                         </span>
                         <span role="cell">
-                          <Status tone="partial">Only through a view</Status>
+                          <Status tone="info">Customer view</Status>
+                          <small className="rv-muted">
+                            {t.measured?.first_date ? `Measured ${fmt.range(String(t.measured.first_date), String(t.measured.last_date ?? ""), true)}` : "Not measured yet"}
+                          </small>
                         </span>
                         <FactBar id={`f:vtable:${t.table}`} ctx={cards} />
                       </div>
@@ -409,7 +412,7 @@ export function FullGuide({ out, guide, cards, onResolve }: { out: any; guide: O
                   </div>
                 )}
                 {s.viewLookups.length > 0 && (
-                  <Fold title="Lookups reached only through a view" note={`${s.viewLookups.length} tables of names and groups, no measures`}>
+                  <Fold title="Lookups in the customer's view" note={`${s.viewLookups.length} tables of names and groups, no measures`}>
                     <div className="rv-lookups">
                       {s.viewLookups.map((t) => (
                         <div key={`${t.view}.${t.table}`} className="rv-lookup card-hover">

@@ -124,7 +124,7 @@ def audit(out: dict[str, Any], profile: dict[str, Any]) -> dict[str, Any]:
         g for g in out.get("semantic_views", [])
         if g["use_for"] == "reference_only" and any(f in families for f in g.get("families", []))
     ]  # fmt: skip
-    items.append(_item("View-or-tables decision is sensible", 10 if not ref_only else 4, 10,
+    items.append(_item("Measured views are used as the source", 10 if not ref_only else 4, 10,
                        f"{len(ref_only)} measured views marked reference only"))  # fmt: skip
 
     issues = out.get("quality_issues", [])
