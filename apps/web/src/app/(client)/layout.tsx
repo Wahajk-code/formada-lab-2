@@ -120,7 +120,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
     <div className="flex h-full flex-col">
       <div className="sb-logo flex items-center justify-between px-2.5">
         <Link href="/dashboard" aria-label="Formada.AI">
-          <span className="sb-full inline-flex">
+          <span className="sb-full">
             <Logo />
           </span>
           <span className="sb-mini">

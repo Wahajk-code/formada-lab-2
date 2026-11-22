@@ -45,6 +45,7 @@ import { RulesPresets } from "@/components/console/onboarding/rules-presets";
 import {
   blockingChecks,
   Checklist,
+  HAS_CHECKLIST,
 } from "@/components/console/onboarding/review";
 import { TrialPanel } from "@/components/console/onboarding/trial-panel";
 import { RunButton } from "@/components/console/run-button";
@@ -739,7 +740,7 @@ export function StepView({
               {locked}
             </p>
           )}
-          {!locked && (ready || (stepKey === "connect" && state.connection)) && (
+          {!locked && HAS_CHECKLIST(stepKey) && (ready || (stepKey === "connect" && state.connection)) && (
             <Checklist
               key={`${stepKey}-${step?.id ?? ""}`}
               checks={state.review?.checklists[stepKey] ?? []}

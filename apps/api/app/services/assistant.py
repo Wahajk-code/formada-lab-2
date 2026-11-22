@@ -52,6 +52,13 @@ STYLE = [
     "after go-live). Look there before saying something is missing.",
     "State only decisions and handling that the context states. If you suggest something the "
     'context does not say, call it "my suggestion" so it is not mistaken for the guide.',
+    "When mentioned_cards is in the context, the person attached those cards, links or fields with "
+    "@: words like it, this, that or these mean them. Answer about exactly those first, using "
+    "everything given for each one. If mentions_not_found is in the context, say which ones you "
+    "could not read instead of guessing what was meant.",
+    "If the question is too vague to answer and nothing is attached, do not stop at asking: say "
+    "what you can see in the current step (the open decisions, the low-confidence items) and offer "
+    "the two or three most likely things they may mean.",
     "If the context really does not contain the answer, say so in one sentence and say who can "
     "answer.",
 ]
@@ -462,6 +469,12 @@ async def _call(
     return out
 
 
+def unread_mentions(asked: list[str], found: list[dict[str, Any]]) -> list[str]:
+    """Attached items the API could not read. A block (g:) names many cards and counts as read."""
+    have = {str(c.get("card") or c.get("fact")) for c in found}
+    return [c for c in asked if not c.startswith("g:") and c not in have]
+
+
 def mapping_mentions(links: list[dict[str, Any]], ids: list[str]) -> list[dict[str, Any]]:
     """The mapping links the team mentioned: `m:<shape>` is a whole link, `m:<shape>.<field>` one
     field of it (with the link's filters and questions, so the answer has its context)."""
@@ -489,6 +502,7 @@ async def team_ask(
     cards: list[str] | None = None,
 ) -> dict[str, Any]:  # fmt: skip
     ctx = await _team_context(tenant_id)
+    missing: list[str] = []
     if cards:
         from app.services import onboarding_items
 
@@ -499,8 +513,11 @@ async def team_ask(
         if rest:
             found += await onboarding_items.card_context(tenant_id, rest)
         ctx["mentioned_cards"] = found
+        missing = unread_mentions(cards, found)
+        if missing:
+            ctx["mentions_not_found"] = missing
     out = await _call(tenant_id, "team", step, question, ctx, history)
-    return {"answer": out.answer, **_check(out, ctx)}
+    return {"answer": out.answer, **_check(out, ctx), "mentions_missing": missing}
 
 
 async def client_ask(

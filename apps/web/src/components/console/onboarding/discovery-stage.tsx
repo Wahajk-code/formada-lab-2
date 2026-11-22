@@ -18,6 +18,7 @@ import {
 import { AddJoin, CardBar, CardEditor, ChangeReview, GroupBar, type CardCtx } from "@/components/console/onboarding/card-tools";
 import { ChatJump } from "@/components/console/onboarding/chat-jump";
 import { appendTurns, truncateTurns, useChatTurns } from "@/lib/chat-store";
+import { missingNote, questionWithMentions } from "@/lib/mentions";
 import { cardId, cardList, groupIndex, type CardSuggestion } from "@/lib/discovery-cards";
 import { EngineerChat } from "@/components/console/onboarding/engineer-chat";
 import { cn } from "@/lib/utils";
@@ -391,10 +392,14 @@ export function DiscoveryStage({
     push(s, { role: "user", text, intent: "ask", cards: cardIds });
     setThinking(true);
     start(async () => {
-      const res = await askWorkspaceAI(workspaceId, "discovery", text, history, cardIds);
+      const labelOf = (id: string) => cardRefs.find((c) => c.id === id)?.label ?? facts.find((f) => f.id === id)?.label ?? groups[id]?.label;
+      const res = await askWorkspaceAI(workspaceId, "discovery", questionWithMentions(text, cardIds, labelOf), history, cardIds);
       if (res.ok && res.data) {
         const { answer, sources, grounded, unverified } = res.data;
-        push(s, { role: "assistant", text: answer, check: { sources, grounded, unverified } });
+        const note = missingNote(cardIds, res.data.mentions_missing, labelOf);
+        push(s, { role: "assistant", text: note ? `${answer}
+
+${note}` : answer, check: { sources, grounded, unverified } });
       } else push(s, { role: "assistant", text: res.ok ? "No answer." : res.error });
       setThinking(false);
     });

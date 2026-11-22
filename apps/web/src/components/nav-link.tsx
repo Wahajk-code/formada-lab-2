@@ -12,6 +12,7 @@ export function NavLink({
   children,
   badge,
   exact = false,
+  match,
   onNavigate,
 }: {
   href: string;
@@ -20,10 +21,12 @@ export function NavLink({
   badge?: React.ReactNode;
   /** Highlight only on this exact path (for a section's home page). */
   exact?: boolean;
+  /** Other paths that belong to this item (for example a workspace's onboarding steps). */
+  match?: RegExp;
   onNavigate?: () => void;
 }) {
   const path = usePathname();
-  const active = path === href || (!exact && path.startsWith(`${href}/`));
+  const active = path === href || (!exact && path.startsWith(`${href}/`)) || Boolean(match?.test(path));
   return (
     <Link
       href={href}

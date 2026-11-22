@@ -175,6 +175,8 @@ export type CardFull = {
 /** What code checked about an AI answer (ADR 0029): its sources, whether the context held the
  * answer, and the numbers it could not find in the context. */
 export type AnswerCheck = { sources: string[]; grounded: "yes" | "partly" | "no"; unverified: string[] };
+/** The answer of the team chat. `mentions_missing` lists attached items the API could not read; an older API leaves it out. */
+export type TeamAnswer = AnswerCheck & { answer: string; mentions_missing?: string[] };
 /** `intent` and `cards` are kept on your own messages so an edited one can be asked again the same way. */
 export type AssistantTurn = {
   role: "user" | "assistant";

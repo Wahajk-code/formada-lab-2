@@ -39,7 +39,7 @@ export default async function ConsoleLayout({ children }: { children: React.Reac
     <div className="flex h-full flex-col">
       <div className="sb-logo flex items-center gap-2 px-2.5">
         <Link href="/console" aria-label="Formada console">
-          <span className="sb-full inline-flex">
+          <span className="sb-full">
             <Logo />
           </span>
           <span className="sb-mini">

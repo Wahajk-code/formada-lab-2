@@ -8,6 +8,9 @@ import type { ThreadStep } from "@/lib/client-api";
 import type { OnboardingState, ReviewCheck } from "@/lib/console-api";
 import { cn } from "@/lib/utils";
 
+/** Discovery and mapping show no checklist; their review screens carry the same facts. */
+export const HAS_CHECKLIST = (step: ThreadStep) => step !== "discovery" && step !== "mapping";
+
 /** Review by exception: checks computed by code. A warning opens in place with what to do. */
 export function Checklist({
   checks,
@@ -122,5 +125,6 @@ export function Checklist({
 
 /** Approving past an open warning needs a one-line reason (audited). */
 export function blockingChecks(state: OnboardingState, step: ThreadStep) {
+  if (!HAS_CHECKLIST(step)) return [];
   return (state.review?.checklists[step] ?? []).filter((c) => !c.ok && !c.soft);
 }

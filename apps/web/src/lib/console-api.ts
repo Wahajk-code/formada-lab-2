@@ -8,7 +8,7 @@ import type { CardSuggestion } from "@/lib/discovery-cards";
 
 import {
   ApiError,
-  type AnswerCheck,
+  type TeamAnswer,
   type AssistantTurn,
   type CardFull,
   type OrgDraft,
@@ -884,7 +884,7 @@ export const consoleApi = {
   resendWelcome: (id: string) => send<{ status: string; to: string; link?: string }>("POST", `/workspaces/${id}/welcome`, {}),
   onboardingGuide: (id: string) => request<OnboardingGuide>(`/workspaces/${id}/onboarding/guide`),
   askWorkspaceAI: (id: string, step: ThreadStep, question: string, history: AssistantTurn[], cards: string[] = []) =>
-    send<AnswerCheck & { answer: string }>("POST", `/workspaces/${id}/onboarding/assistant`, {
+    send<TeamAnswer>("POST", `/workspaces/${id}/onboarding/assistant`, {
       step,
       question,
       history: history.map(({ role, text }) => ({ role, text })),

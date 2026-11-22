@@ -11,6 +11,7 @@ import { WORDS } from "@/components/console/onboarding/mapping-guide";
 import { breakable, FactBar, fmt, Fold, humanDates, humanName, Lines, Section, shortName, Status, Sub, type Tone } from "@/components/console/onboarding/review-kit";
 import { Icon } from "@/components/ui/icon";
 import { appendTurns, truncateTurns, useChatTurns } from "@/lib/chat-store";
+import { missingNote, questionWithMentions } from "@/lib/mentions";
 import type { AssistantTurn } from "@/lib/client-api";
 import type { OnboardingGuide, OnboardingStep } from "@/lib/console-api";
 import { cn } from "@/lib/utils";
@@ -100,10 +101,14 @@ export function MappingStage({ step, guide, workspaceId, can }: { step: Onboardi
     appendTurns(workspaceId, "mapping", { role: "user", text, intent: "ask", cards });
     setThinking(true);
     start(async () => {
-      const res = await askWorkspaceAI(workspaceId, "mapping", text, history, cards);
+      const labelOf = (id: string) => mentionables.find((m) => m.id === id)?.label;
+      const res = await askWorkspaceAI(workspaceId, "mapping", questionWithMentions(text, cards, labelOf), history, cards);
       if (res.ok && res.data) {
         const { answer, sources: src, grounded, unverified } = res.data;
-        appendTurns(workspaceId, "mapping", { role: "assistant", text: answer, check: { sources: src, grounded, unverified } });
+        const note = missingNote(cards, res.data.mentions_missing, labelOf);
+        appendTurns(workspaceId, "mapping", { role: "assistant", text: note ? `${answer}
+
+${note}` : answer, check: { sources: src, grounded, unverified } });
       } else appendTurns(workspaceId, "mapping", { role: "assistant", text: res.ok ? "No answer." : res.error });
       setThinking(false);
     });
@@ -212,25 +217,6 @@ export function MappingStage({ step, guide, workspaceId, can }: { step: Onboardi
         </div>
       </section>
 
-      <div data-engineer-chat-host>
-        <EngineerChat
-          scope="Mapping"
-          turns={turns}
-          pending=""
-          thinking={thinking}
-          emptyTitle="What would you like to review?"
-          intro="Ask about a link or a field. Hover a shape or a field and press @ to give it to the chat."
-          placeholder="Ask about a mapping…"
-          starters={["Which mappings need review?", `Explain ${WORDS[reviewable[0]?.a.archetype] ?? "the first link"}`]}
-          onAsk={(text) => ask(text)}
-          onClear={clear}
-          onResend={resend}
-          mentionables={mentionables}
-          mentions={mentions}
-          onMentions={setMentioned}
-        />
-      </div>
-      <ChatJump count={mentions.length} />
 
       <section className="stage-panel stage-content-panel">
         <div className="rv" ref={list}>
@@ -433,6 +419,26 @@ export function MappingStage({ step, guide, workspaceId, can }: { step: Onboardi
           })}
         </div>
       </section>
+
+      <div data-engineer-chat-host>
+        <EngineerChat
+          scope="Mapping"
+          turns={turns}
+          pending=""
+          thinking={thinking}
+          emptyTitle="What would you like to review?"
+          intro="Ask about a link or a field. Hover a shape or a field and press @ to give it to the chat."
+          placeholder="Ask about a mapping…"
+          starters={["Which mappings need review?", `Explain ${WORDS[reviewable[0]?.a.archetype] ?? "the first link"}`]}
+          onAsk={(text) => ask(text)}
+          onClear={clear}
+          onResend={resend}
+          mentionables={mentionables}
+          mentions={mentions}
+          onMentions={setMentioned}
+        />
+      </div>
+      <ChatJump count={mentions.length} />
     </>
   );
 }

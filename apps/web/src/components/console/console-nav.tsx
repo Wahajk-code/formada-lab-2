@@ -8,9 +8,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { NavLink } from "@/components/nav-link";
 import { cn } from "@/lib/utils";
 
-const LINKS = [
-  { href: "/console", label: "Overview", icon: LayoutGrid, exact: true },
-  { href: "/console/onboarding", label: "Onboarding", icon: ListChecks },
+// A workspace's own pages belong to the item they are about: its onboarding steps to Onboarding,
+// the workspace home and its runs to Overview.
+const LINKS: { href: string; label: string; icon: typeof LayoutGrid; exact?: boolean; match?: RegExp }[] = [
+  { href: "/console", label: "Overview", icon: LayoutGrid, exact: true, match: /^\/console\/workspaces\/[^/]+(\/runs\/.*)?$/ },
+  { href: "/console/onboarding", label: "Onboarding", icon: ListChecks, match: /^\/console\/workspaces\/[^/]+\/onboarding/ },
   { href: "/console/config", label: "Config & rules", icon: SlidersHorizontal },
   { href: "/console/agents", label: "AI agents", icon: Bot },
   { href: "/console/ai-lab", label: "AI lab", icon: FlaskConical },
@@ -27,11 +29,12 @@ export function ConsoleNav({ rulesToReview, onboardingQuestions = 0 }: { rulesTo
   return (
     <nav className="mt-6" aria-label="Console">
       <p className="eyebrow sb-eyebrow mb-[7px] ml-[11px]">Internal</p>
-      {LINKS.map(({ href, label, icon: Icon, exact }) => (
+      {LINKS.map(({ href, label, icon: Icon, exact, match }) => (
         <NavLink
           key={href}
           href={href}
           exact={exact}
+          match={match}
           icon={<Icon size={19} aria-hidden />}
           badge={
             href === "/console/onboarding" && onboardingQuestions > 0 ? (

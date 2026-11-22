@@ -225,8 +225,15 @@ def _c(key: str, ok: bool, title: str, detail: str, fix: str = "") -> dict[str, 
     return {"key": key, "ok": ok, "title": title, "detail": detail, "fix": "" if ok else fix}
 
 
+# Discovery and mapping show no checklist: the review screens carry the same facts, and approving
+# does not ask for a reason.
+NO_CHECKLIST = {"discovery", "mapping"}
+
+
 def blocking(step: str, checks: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """The failed checks that need a reason to approve past."""
+    if step in NO_CHECKLIST:
+        return []
     return [c for c in checks if not c["ok"] and (step, c["key"]) not in SOFT]
 
 
