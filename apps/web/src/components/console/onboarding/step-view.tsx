@@ -35,7 +35,6 @@ import {
   MetricsView,
   OrgView,
 } from "@/components/console/onboarding/views";
-import { AssistantPanel } from "@/components/console/onboarding/assistant-panel";
 import { DiscoveryStage } from "@/components/console/onboarding/discovery-stage";
 import { RoleTypes, RulesEditor, WhoSeesWhat } from "@/components/console/onboarding/editors";
 import { ItemEditor } from "@/components/console/onboarding/item-editor";
@@ -955,7 +954,6 @@ export function StepView({
           can={can}
           timezone={state.workspace.timezone}
         />
-        {stepKey !== "discovery" && stepKey !== "mapping" && <AssistantPanel workspaceId={state.workspace.id} step={stepKey} />}
       </aside>
       </div>
     </section>

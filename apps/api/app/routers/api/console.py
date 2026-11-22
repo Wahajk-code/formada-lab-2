@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from app.core.auth import CurrentStaff, StaffPrincipal, TokenAuth, get_auth
+from app.core.settings import get_settings
 from app.domain.auth import PERMISSIONS, staff_can
 from app.integrations import n8n
 from app.services import (
@@ -128,6 +129,12 @@ async def run_detail(
 
 @router.post("/workspaces/{tenant_id}/run")
 async def run_now(tenant_id: uuid.UUID, staff: Trigger) -> dict[str, Any]:
+    if get_settings().lab_mode:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Trial runs are off in the review lab: it has no scheduler (n8n) and makes no "
+            "cards. They run on a live workspace.",
+        )
     if not await n8n.run_now(tenant_id):
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "n8n is not reachable")
     return {"status": "started"}

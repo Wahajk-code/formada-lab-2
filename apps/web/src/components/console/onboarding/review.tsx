@@ -1,9 +1,8 @@
 "use client";
 
-import { AlertTriangle, Check, ChevronDown, Sparkles } from "lucide-react";
+import { AlertTriangle, Check, ChevronDown } from "lucide-react";
 import { useState } from "react";
 
-import { ASK_EVENT } from "@/components/console/onboarding/assistant-panel";
 import type { ThreadStep } from "@/lib/client-api";
 import type { OnboardingState, ReviewCheck } from "@/lib/console-api";
 import { cn } from "@/lib/utils";
@@ -67,19 +66,6 @@ export function Checklist({
                     className="rounded-full bg-card px-2.5 py-1 font-medium shadow-card hover:bg-surface"
                   >
                     See the details
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      window.dispatchEvent(
-                        new CustomEvent(ASK_EVENT, {
-                          detail: `Explain this check and how to fix it: "${c.title}". Detail: ${c.detail}`,
-                        }),
-                      )
-                    }
-                    className="inline-flex items-center gap-1 rounded-full bg-card px-2.5 py-1 font-medium shadow-card hover:bg-surface"
-                  >
-                    <Sparkles className="size-3" /> Explain this
                   </button>
                 </div>
               </div>
