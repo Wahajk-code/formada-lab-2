@@ -347,15 +347,6 @@ export function FullGuide({ out, guide, cards, onResolve }: { out: any; guide: O
           <DataTimeline points={time.dates} breaks={time.breaks} />
           <Lines
             rows={[
-              ...time.breaks.map(
-                (b): [string, React.ReactNode] => [
-                  "Sudden drop",
-                  <>
-                    {fmt.date(b.to)}: rows fell {b.rows && b.rows[0] ? `${Math.round((100 * (b.rows[0] - b.rows[1])) / b.rows[0])}%` : "sharply"}
-                    {b.rows && <span className="rv-muted"> ({b.rows.map(fmt.exact).join(" to ")})</span>}
-                  </>,
-                ],
-              ),
               [
                 "Empty at first",
                 time.filled_late.length ? (

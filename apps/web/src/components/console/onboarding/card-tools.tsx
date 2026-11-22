@@ -36,6 +36,9 @@ export type CardCtx = {
   /** Relationships only. Both return an error message, or null when done. */
   onRemove: (id: string) => Promise<string | null>;
   onAddJoin: (table: string, column: string, refTable: string, refColumn: string) => Promise<string | null>;
+  /** The tables of the customer's views, for choosing the ends of a link. */
+  viewTables: string[];
+  onAddLink: (body: { from_table: string; keys: string; to_table: string; ref_keys: string; note: string }) => Promise<string | null>;
 };
 
 const show = (v: unknown) => (Array.isArray(v) ? v.join(", ") : String(v ?? ""));
@@ -147,7 +150,7 @@ export function CardEditor({ id, kind, item, ctx }: { id: string; kind: CardKind
     else ctx.setEditing(null);
   };
   const choices = (f: string): string[] | null =>
-    ENUMS[f] ?? (f === "references_table" && ctx.tables.length ? ctx.tables : null);
+    ENUMS[f] ?? (f === "references_table" && ctx.tables.length ? ctx.tables : f === "to_table" && ctx.viewTables.length ? ctx.viewTables : null);
   return (
     <div className="card-editor stage-form">
       <div className="card-editor-fields">
@@ -163,7 +166,7 @@ export function CardEditor({ id, kind, item, ctx }: { id: string; kind: CardKind
                   </option>
                 ))}
               </select>
-            ) : kind === "join" ? (
+            ) : kind === "join" || (kind === "link" && f !== "note") ? (
               <input value={values[f]} maxLength={200} onChange={(e) => setValues({ ...values, [f]: e.target.value })} />
             ) : (
               <textarea rows={f === "purpose" || f === "evidence" || f === "impact" || f === "suggested_handling" ? 3 : 2} value={values[f]} maxLength={2000} onChange={(e) => setValues({ ...values, [f]: e.target.value })} />
@@ -258,6 +261,85 @@ export function AddJoin({ ctx, disabled }: { ctx: CardCtx; disabled: boolean }) 
           Cancel
         </button>
         <span className="stage-helper">The field names are checked against the scan.</span>
+      </div>
+    </div>
+  );
+}
+
+/** Declare a link the customer's view is missing, with the reason. It is locked, so a rerun keeps it. */
+export function AddLink({ ctx, disabled, from }: { ctx: CardCtx; disabled: boolean; from?: string }) {
+  const [open, setOpen] = useState(false);
+  const blank = { from_table: from ?? "", keys: "", to_table: "", ref_keys: "", note: "" };
+  const [v, setV] = useState(blank);
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  if (!ctx.can) return null;
+  if (!open)
+    return (
+      <button type="button" className="btn btn-secondary add-join-open" disabled={disabled} onClick={() => setOpen(true)}>
+        <Icon name="plus" size={15} /> <span>Add a missing link</span>
+      </button>
+    );
+  const ready = v.from_table && v.keys.trim() && v.to_table && v.ref_keys.trim();
+  const submit = async () => {
+    setSaving(true);
+    setError(null);
+    const err = await ctx.onAddLink({ ...v, keys: v.keys.trim(), ref_keys: v.ref_keys.trim(), note: v.note.trim() });
+    setSaving(false);
+    if (err) setError(err);
+    else {
+      setOpen(false);
+      setV(blank);
+    }
+  };
+  const tableSelect = (key: "from_table" | "to_table") => (
+    <select value={v[key]} onChange={(e) => setV({ ...v, [key]: e.target.value })}>
+      <option value="">Choose a table</option>
+      {ctx.viewTables.map((t) => (
+        <option key={t} value={t}>
+          {t}
+        </option>
+      ))}
+    </select>
+  );
+  return (
+    <div className="card-editor stage-form">
+      <strong>Add a missing link</strong>
+      <div className="stage-fields">
+        <label>
+          This table
+          {tableSelect("from_table")}
+        </label>
+        <label>
+          Field(s) on it
+          <input value={v.keys} maxLength={200} onChange={(e) => setV({ ...v, keys: e.target.value })} />
+        </label>
+        <label>
+          Finds its match in
+          {tableSelect("to_table")}
+        </label>
+        <label>
+          Field(s) on that table
+          <input value={v.ref_keys} maxLength={200} onChange={(e) => setV({ ...v, ref_keys: e.target.value })} />
+        </label>
+        <label>
+          Why (so the next person knows)
+          <textarea rows={2} value={v.note} maxLength={2000} onChange={(e) => setV({ ...v, note: e.target.value })} />
+        </label>
+      </div>
+      {error && (
+        <p className="stage-helper" role="alert">
+          {error}
+        </p>
+      )}
+      <div className="stage-form-footer">
+        <button type="button" className="btn btn-primary" disabled={!ready || saving} onClick={submit}>
+          <Icon name="lock" size={15} /> <span>{saving ? "Adding…" : "Add and lock"}</span>
+        </button>
+        <button type="button" className="btn btn-secondary" disabled={saving} onClick={() => setOpen(false)}>
+          Cancel
+        </button>
+        <span className="stage-helper">Field names are checked against the view.</span>
       </div>
     </div>
   );

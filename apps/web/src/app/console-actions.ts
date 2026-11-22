@@ -332,6 +332,14 @@ export async function addDiscoveryJoin(id: string, stepId: string, table: string
   return attempt(() => consoleApi.addJoin(id, stepId, table, column, referencesTable, referencesColumn), ob(id));
 }
 
+export async function addDiscoveryLink(
+  id: string,
+  stepId: string,
+  body: { from_table: string; keys: string; to_table: string; ref_keys: string; note: string },
+) {
+  return attempt(() => consoleApi.addLink(id, stepId, body), ob(id));
+}
+
 export async function suggestCardChanges(id: string, stepId: string, cardIds: string[], instruction: string) {
   return attempt(() => consoleApi.suggestCards(id, stepId, cardIds, instruction), []);
 }

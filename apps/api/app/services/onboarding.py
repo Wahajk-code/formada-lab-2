@@ -21,6 +21,7 @@ from app.core.db import global_tx, tenant_tx
 from app.core.errors import Conflict, Invalid, NotFound
 from app.core.logging import get_logger
 from app.core.settings import get_settings
+from app.domain import discovery_cards as dc
 from app.domain import onboarding as ob
 from app.domain import onboarding_flow as flow
 from app.domain import org_import, semantic
@@ -333,13 +334,20 @@ async def save_connection(
 # ---------------------------------------------------------------------------------------------
 
 
+def _with_links(row: OnboardingStep) -> dict[str, Any] | None:
+    """A discovery answer always carries its links (older ones get them from their profile)."""
+    if row.step != "discovery" or not row.output:
+        return row.output
+    return dc.with_links(row.output, (row.input or {}).get("profile"))
+
+
 def _step_view(row: OnboardingStep) -> dict[str, Any]:
     cost = estimated_cost(row.model or "", row.input_tokens + row.output_tokens)
     return {
         "id": str(row.id),
         "step": row.step,
         "status": row.status,
-        "output": row.output,
+        "output": _with_links(row),
         "checks": row.checks,
         "notes": row.notes,
         "agent": f"{row.agent_key} v{row.agent_version}" if row.agent_key else None,
@@ -1051,6 +1059,11 @@ async def start_discovery(
         data = out.model_dump()
         # Written by code, not the AI: every table of each view and every declared link.
         data["view_links"] = [semantic.graph(v) for v in profile.get("semantic_views", [])]
+        # The links the views declare become cards the team can change. What the team removed,
+        # changed or added before survives a new analysis: the customer's views have not changed.
+        data["links"], data["removed_links"] = dc.fresh_links(
+            profile, await _latest_output(tenant_id, "discovery")
+        )
         await _finish(tenant_id, step_id, data, ob.check_discovery(data, profile).as_dict())
 
     return await _start(actor, tenant_id, "discovery", notes, work)
@@ -1070,7 +1083,8 @@ async def start_mapping(
 
     async def work(step_id: uuid.UUID) -> None:
         archetypes = await _archetypes()
-        profile = discovery.input["profile"]
+        # The team's reviewed links, not only the ones the views declare.
+        profile = dc.effective_profile(discovery.input["profile"], discovery.output or {})
         payload = {
             "today": date.today().isoformat(),
             "dialect": "Snowflake",
@@ -2086,6 +2100,12 @@ async def guide(tenant_id: uuid.UUID) -> dict[str, Any]:
             .limit(1)
         )
     profile = ((disc.input or {}).get("profile") or {}) if disc else {}
+    # The links the team reviewed (removed, changed, added): what the mapper uses.
+    profile = (
+        dc.effective_profile(profile, dc.with_links(disc.output or {}, profile))
+        if disc
+        else profile
+    )
     tables = [
         {"table": t["table"], "rows": t.get("rows"),
          "columns": [{k: c.get(k) for k in ("column", "type", "fill_pct", "distinct")}

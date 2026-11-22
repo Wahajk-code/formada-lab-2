@@ -873,3 +873,35 @@ button.rv-tile { width: 100%; text-align: left; font: inherit; color: inherit; c
   .fx-ws-progress { grid-column: 1 / -1; }
   .fx-picker { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+
+/* The main table over time: one line, one note on a drop, one sentence about how often it is counted. */
+.rv-tl-note { fill: #d64545; font-size: 20px; font-weight: 700; font-family: var(--fd-font); }
+.rv-tl-dot { fill: #d64545; }
+.rv-tl-sum { color: var(--fd-secondary); font-size: 14px; line-height: 1.5; }
+
+/* How the customer's tables connect: boxes and lines, one area at a time. */
+.vd-tabs { display: flex; flex-wrap: wrap; gap: 8px; }
+.vd-tab { all: unset; box-sizing: border-box; cursor: pointer; display: grid; gap: 1px; padding: 8px 14px; border: 1px solid var(--fd-border); border-radius: 12px; font-weight: 600; font-size: 14px; background: var(--fd-card, #fff); }
+.vd-tab small { font-weight: 400; font-size: 12px; color: var(--fd-secondary); }
+.vd-tab small em { font-style: normal; color: #b45309; }
+.vd-tab.is-on { border-color: #6f4ec9; box-shadow: 0 0 0 3px #6f4ec922; }
+.vd-tab:focus-visible, .vd-row:focus-visible { outline: 3px solid #6f4ec9; outline-offset: 2px; }
+.vd-scroll { overflow-x: auto; padding: 6px 0 10px; }
+.vd-canvas { position: relative; margin: 0 auto; }
+.vd-canvas svg { position: absolute; inset: 0; overflow: visible; }
+.vd-box { position: absolute; display: grid; align-content: center; gap: 1px; padding: 6px 12px; border: 1px solid var(--fd-border); border-radius: 12px; background: var(--fd-card, #fff); box-shadow: 0 1px 2px #0000000d; overflow: hidden; }
+.vd-box b { font-size: 13.5px; line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vd-box small { font-size: 11.5px; color: var(--fd-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vd-box.is-fact { border-color: #6f4ec955; background: #6f4ec90d; }
+.vd-box.is-on { border-color: #6f4ec9; box-shadow: 0 0 0 3px #6f4ec922; }
+.vd-wire path { fill: none; stroke: #9a8bc4; stroke-width: 1.8; }
+.vd-wire.is-team path { stroke: #3b82a0; stroke-dasharray: 6 4; }
+.vd-wire.is-on path { stroke: #6f4ec9; stroke-width: 2.8; }
+.vd-wire path.vd-hit { stroke: transparent; stroke-width: 14; cursor: pointer; pointer-events: stroke; }
+.vd-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.vd-row { all: unset; box-sizing: border-box; cursor: pointer; width: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 9px 12px; border: 1px solid var(--fd-border); border-radius: 10px; font-size: 14px; }
+.vd-row.is-on { border-color: #6f4ec9; background: #6f4ec90d; }
+.vd-row code { margin-left: auto; font-size: 12px; color: var(--fd-secondary); overflow-wrap: anywhere; }
+.vd-nolink { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding: 9px 12px; border: 1px dashed #e0a526; border-radius: 10px; font-size: 14px; }
+.vd-ai { margin: 4px 0; font-size: 14px; line-height: 1.5; }
+.vd-ends { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }

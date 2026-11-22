@@ -6,7 +6,7 @@
  * Everything is LOCKED unless it is in `out.unlocked_cards`: the guide is mostly right, so edits
  * are targeted. */
 
-export type CardKind = "overview" | "table" | "join" | "issue" | "coverage" | "question" | "view";
+export type CardKind = "overview" | "table" | "join" | "issue" | "coverage" | "question" | "view" | "link";
 export type CardSection = "guide" | "relationships" | "gaps";
 
 export const OVERVIEW = "o:overview";
@@ -19,6 +19,7 @@ export const CARD_FIELDS: Record<CardKind, string[]> = {
   coverage: ["status", "evidence"],
   question: ["why", "to"],
   view: ["purpose", "grain", "caveats"],
+  link: ["keys", "to_table", "ref_keys", "note"],
 };
 export const LIST_FIELDS = new Set(["key_columns", "caveats"]);
 export const ENUMS: Record<string, string[]> = {
@@ -45,8 +46,12 @@ export const FIELD_LABEL: Record<string, string> = {
   column: "Field on the first table",
   references_table: "Joins to table",
   references_column: "Field on that table",
+  keys: "Field(s) on the first table",
+  to_table: "Finds its match in",
+  ref_keys: "Field(s) on that table",
+  note: "Why (the team's reason)",
 };
-const PREFIX: Record<CardKind, string> = { overview: "o", table: "t", join: "j", issue: "i", coverage: "c", question: "q", view: "v" };
+const PREFIX: Record<CardKind, string> = { overview: "o", table: "t", join: "j", issue: "i", coverage: "c", question: "q", view: "v", link: "l" };
 export const SECTION_OF: Record<CardKind, CardSection> = {
   overview: "guide",
   table: "guide",
@@ -55,6 +60,7 @@ export const SECTION_OF: Record<CardKind, CardSection> = {
   issue: "gaps",
   coverage: "gaps",
   question: "gaps",
+  link: "relationships",
 };
 
 export const slug = (text: string) =>
@@ -70,6 +76,7 @@ const short = (name: unknown) => String(name ?? "").split(".").pop() ?? "";
 export function cardId(kind: CardKind, item: any, owner = ""): string {
   if (kind === "overview") return OVERVIEW;
   if (kind === "join") return `j:${owner}.${item.column}>${item.references_table}.${item.references_column}`;
+  if (kind === "link") return `l:${item.from_table}.${item.keys}>${item.to_table}.${item.ref_keys}`;
   const name =
     kind === "table" ? item.table : kind === "view" ? item.view : kind === "coverage" ? item.family : kind === "issue" ? slug(item.title ?? "") : slug(item.question ?? "");
   return `${PREFIX[kind]}:${name}`;
@@ -78,6 +85,7 @@ export function cardId(kind: CardKind, item: any, owner = ""): string {
 export function cardLabel(kind: CardKind, item: any, owner = ""): string {
   if (kind === "overview") return "Overview";
   if (kind === "join") return `${short(owner)}.${item.column} to ${short(item.references_table)}.${item.references_column}`;
+  if (kind === "link") return `${short(item.from_table)} to ${short(item.to_table)} by ${item.keys}`;
   if (kind === "table") return short(item.table);
   if (kind === "view") return short(item.view);
   if (kind === "coverage") return String(item.family ?? "").replace(/_/g, " ");
@@ -175,11 +183,16 @@ export function groupIndex(out: any): Record<string, Group> {
   add("g:issues:general", "Data quality across areas", issues.map((q) => cardId("issue", q)).filter((i) => !placed.has(i)));
   add("g:views", "Customer semantic views", views);
   add("g:questions", "Questions for the customer", questions);
+  const links: any[] = out.links ?? [];
+  const linkIds = links.map((l) => cardId("link", l));
+  for (const key of AREA_KEYS)
+    add(`g:links:${key}`, `${AREA_LABEL[key]} links`, links.filter((l) => areaOf(l.from_table ?? "") === key).map((l) => cardId("link", l)));
+  add("g:links", "All links in the customer's views", linkIds);
   add("g:joins", "All relationships", joinIds);
   for (const t of out.tables ?? [])
     add(`g:joins:${t.table}`, `${short(t.table)} relationships`, (t.joins ?? []).map((j: any) => cardId("join", j, t.table)));
   add("g:section:guide", "Data guide", [...overview, ...tables.map((x) => cardId("table", { table: x })), ...views]);
-  add("g:section:relationships", "Relationships", joinIds);
+  add("g:section:relationships", "Relationships", [...joinIds, ...linkIds]);
   add("g:section:gaps", "Coverage gaps", [...(out.coverage ?? []).map((c: any) => cardId("coverage", c)), ...issues.map((q) => cardId("issue", q)), ...questions]);
   return found;
 }
@@ -200,10 +213,12 @@ export function cardList(out: any): CardRef[] {
   const joins: CardRef[] = (out.tables ?? []).flatMap((t: any) =>
     (t.joins ?? []).map((j: any) => ref("join", cardId("join", j, t.table), cardLabel("join", j, t.table))),
   );
+  const links: CardRef[] = (out.links ?? []).map((l: any) => ref("link", cardId("link", l), cardLabel("link", l)));
   return [
     ...("summary" in out ? [ref("overview", OVERVIEW, "Overview")] : []),
     ...lists.flatMap(([kind, items]) => items.map((item) => ref(kind, cardId(kind, item), cardLabel(kind, item)))),
     ...joins,
+    ...links,
   ];
 }
 

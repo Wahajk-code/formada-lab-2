@@ -1,9 +1,9 @@
 "use client";
 
 /**
- * The main table over time, as a picture: one bar per snapshot (height = rows), coloured by how
- * often snapshots arrive, with marks where days or weeks are missing and where the row count
- * drops. Replaces the table of cadence runs: the eye sees weekly then daily, and the gaps.
+ * The main table over time, as one line: how many rows the table held on each date. The only mark
+ * on it is a sudden drop (or jump) in rows, said in words on the chart. How often snapshots arrive
+ * (weekly, then daily) and whether any are missing is one sentence under it.
  */
 
 import { fmt } from "@/components/console/onboarding/review-kit";
@@ -58,34 +58,41 @@ export function readTimeline(points: Point[]): { segments: Segment[]; marks: Mar
   return { segments: segments.filter((s, i) => !(s.snapshots <= 1 && rhythm(s.step) === 0 && i > 0)), marks };
 }
 
+const cap = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) : s);
+
+/** "Counted weekly from 8 Dec 2024 to 18 Sep 2026, then daily to 13 Nov 2026. 3 gaps." */
+function rhythmSentence(segments: Segment[], marks: Mark[]): string {
+  const parts = segments.map((s, i) => `${i ? "then " : ""}${fmt.days(s.step)} ${fmt.range(s.from, s.to)}`);
+  const gaps = marks.length ? ` ${cap(fmt.plural(marks.length, "gap"))} where a ${marks.some((m) => m.kind === "missing") ? "day" : "week"} is missing.` : " Nothing is missing.";
+  return `Counted ${parts.join(", ")}.${gaps}`;
+}
+
 export function DataTimeline({ points, breaks }: { points: Point[]; breaks: { from: string; to: string; rows?: number[] }[] }) {
   const sorted = [...points].sort((a, b) => a.date.localeCompare(b.date));
   if (sorted.length < 2) return null;
   const { segments, marks } = readTimeline(sorted);
   const W = 1000;
-  const H = 168;
-  const top = 14;
-  const base = 112; // bottom of the chart
-  const band = 120; // the rhythm band under it
+  const H = 200;
+  const top = 40; // room above the line for the note on a drop
+  const base = 160; // the zero line
   const start = t(sorted[0].date);
   const span = t(sorted[sorted.length - 1].date) - start || 1;
   const x = (d: string) => 6 + ((t(d) - start) / span) * (W - 12);
   const max = Math.max(...sorted.map((p) => p.rows), 1);
   const y = (rows: number) => base - ((base - top) * rows) / max;
-  const tone = (step: number) => (step === 1 ? "rv-tl-daily" : step === 7 ? "rv-tl-weekly" : "rv-tl-other");
-  const label = (s: Segment) => cap(fmt.days(s.step));
-  // The rows line over the whole period, filled under it.
   const line = sorted.map((p, i) => `${i ? "L" : "M"} ${x(p.date).toFixed(1)} ${y(p.rows).toFixed(1)}`).join(" ");
   const area = `${line} L ${x(sorted[sorted.length - 1].date).toFixed(1)} ${base} L ${x(sorted[0].date).toFixed(1)} ${base} Z`;
-  // Axis labels: the first date, each change of rhythm, the last date; drop a label that would collide.
-  const ticks: { d: string; align: "start" | "middle" | "end" }[] = [{ d: sorted[0].date, align: "start" }];
-  for (const sg of segments.slice(1)) ticks.push({ d: sg.from, align: "middle" });
-  ticks.push({ d: sorted[sorted.length - 1].date, align: "end" });
-  const shown = ticks.filter((tk, i) => i === 0 || i === ticks.length - 1 || (x(tk.d) - x(ticks[0].d) > 150 && x(ticks[ticks.length - 1].d) - x(tk.d) > 150));
+  // The note on a drop: "55% fewer rows, 19 Oct 2026". It sits on the side with room.
+  const notes = breaks.flatMap((b) => {
+    if (!b.rows || b.rows.length < 2 || !b.rows[0]) return [];
+    const change = Math.round((100 * (b.rows[1] - b.rows[0])) / b.rows[0]);
+    const right = x(b.to) > W * 0.55;
+    return [{ b, x: x(b.to), anchor: right ? ("end" as const) : ("start" as const), text: `${Math.abs(change)}% ${change < 0 ? "fewer" : "more"} rows on ${fmt.date(b.to)}`, from: b.rows[0], to: b.rows[1] }];
+  });
   return (
     <figure className="rv-timeline">
       <div className="rv-tl-scroll">
-        <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`Rows per snapshot from ${fmt.date(sorted[0].date)} to ${fmt.date(sorted[sorted.length - 1].date)}. ${segments.map((sg) => `${label(sg)} ${fmt.range(sg.from, sg.to)}`).join(". ")}.`}>
+        <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`Rows in the table from ${fmt.date(sorted[0].date)} to ${fmt.date(sorted[sorted.length - 1].date)}. ${notes.map((n) => n.text).join(". ")}`}>
           <defs>
             <linearGradient id="rv-tl-fill" x1="0" x2="0" y1="0" y2="1">
               <stop offset="0%" stopColor="#8f6fe0" stopOpacity="0.28" />
@@ -93,7 +100,7 @@ export function DataTimeline({ points, breaks }: { points: Point[]; breaks: { fr
             </linearGradient>
           </defs>
           <line x1={0} x2={W} y1={top} y2={top} className="rv-tl-grid" />
-          <text x={W - 4} y={top - 3} textAnchor="end" className="rv-tl-scale">
+          <text x={4} y={top - 6} className="rv-tl-scale">
             {fmt.count(max)} rows
           </text>
           <path d={area} fill="url(#rv-tl-fill)" />
@@ -104,52 +111,26 @@ export function DataTimeline({ points, breaks }: { points: Point[]; breaks: { fr
             </circle>
           ))}
           <line x1={0} x2={W} y1={base} y2={base} className="rv-tl-axis" />
-          {segments.map((sg) => (
-            <rect key={sg.from} x={x(sg.from)} y={band} width={Math.max(3, x(sg.to) - x(sg.from))} height={10} rx={3} className={tone(sg.step)}>
-              <title>{`${label(sg)}: ${fmt.range(sg.from, sg.to)}, ${fmt.plural(sg.snapshots, "snapshot")}`}</title>
-            </rect>
-          ))}
-          {marks.map((m) => (
-            <g key={m.date} className="rv-tl-gap">
-              <line x1={x(m.date)} x2={x(m.date)} y1={band - 3} y2={band + 13} />
-              <title>{m.kind === "missing" ? `Missing: ${m.text}` : `Skipped: ${m.text}`}</title>
+          {notes.map((n) => (
+            <g key={n.b.to} className="rv-tl-break">
+              <line x1={n.x} x2={n.x} y1={top - 2} y2={base} />
+              <circle cx={n.x} cy={y(n.from)} r={5} className="rv-tl-dot" />
+              <circle cx={n.x} cy={y(n.to)} r={5} className="rv-tl-dot" />
+              <text x={n.x + (n.anchor === "end" ? -10 : 10)} y={top + 14} textAnchor={n.anchor} className="rv-tl-note">
+                {n.text}
+              </text>
+              <title>{`${fmt.exact(n.from)} rows, then ${fmt.exact(n.to)} rows`}</title>
             </g>
           ))}
-          {breaks.map((b) => (
-            <g key={b.to} className="rv-tl-break">
-              <line x1={x(b.to)} x2={x(b.to)} y1={top} y2={base} />
-              <title>{`Row count drop on ${fmt.date(b.to)}${b.rows ? `: ${b.rows.map(fmt.exact).join(" → ")} rows` : ""}`}</title>
-            </g>
-          ))}
-                  {shown.map((tk) => (
-            <text key={tk.d} x={x(tk.d)} y={H - 6} textAnchor={tk.align} className="rv-tl-label">
-              {fmt.date(tk.d)}
-            </text>
-          ))}
+          <text x={4} y={H - 8} textAnchor="start" className="rv-tl-label">
+            {fmt.date(sorted[0].date)}
+          </text>
+          <text x={W - 4} y={H - 8} textAnchor="end" className="rv-tl-label">
+            {fmt.date(sorted[sorted.length - 1].date)}
+          </text>
         </svg>
       </div>
-      <figcaption className="rv-tl-legend">
-        {segments.map((s) => (
-          <span key={s.from}>
-            <i className={tone(s.step)} aria-hidden />
-            <b>{label(s)}</b> {fmt.range(s.from, s.to)} <small>· {fmt.plural(s.snapshots, "snapshot")}</small>
-          </span>
-        ))}
-        {marks.length > 0 && (
-          <span>
-            <i className="rv-tl-gap-key" aria-hidden />
-            Gap
-          </span>
-        )}
-        {breaks.length > 0 && (
-          <span>
-            <i className="rv-tl-break-key" aria-hidden />
-            Row drop
-          </span>
-        )}
-      </figcaption>
+      <figcaption className="rv-tl-sum">{rhythmSentence(segments, marks)}</figcaption>
     </figure>
   );
 }
-
-const cap = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) : s);

@@ -361,6 +361,7 @@ async def _team_context(tenant_id: uuid.UUID) -> dict[str, Any]:
                                      "quality_issues", "questions")},
             "cards_open_for_changes": d.get("unlocked_cards", []),
             "relationships_the_team_removed": d.get("removed_joins", []),
+            "links_the_team_removed_or_replaced": d.get("removed_links", []),
         }  # fmt: skip
         ctx["data_guide"].update(_connections(profile))
     if profile:

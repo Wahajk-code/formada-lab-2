@@ -629,6 +629,8 @@ async def _cards_base(tenant_id: uuid.UUID, step_id: uuid.UUID) -> OnboardingSte
     base = await svc._base(tenant_id, step_id, "discovery")
     if base.status != "proposed":
         raise Conflict("only an open proposal can be edited; run the analysis again first")
+    # An answer made before links were cards gets them here, from the profile it was made from.
+    base.output = dc.with_links(base.output or {}, (base.input or {}).get("profile"))
     return base
 
 
@@ -730,7 +732,8 @@ async def card_context(tenant_id: uuid.UUID, ids: list[str]) -> list[dict[str, A
         )
     if row is None or not row.output:
         return []
-    out, profile = row.output, (row.input or {}).get("profile", {})
+    profile = (row.input or {}).get("profile", {})
+    out = dc.with_links(row.output, profile)
     # Facts are what the scan measured: read-only, given to the chat as they are.
     facts = [f for i in ids if dc.is_fact(i) and (f := dc.fact(profile, i))]
     try:
@@ -900,6 +903,31 @@ async def remove_join_card(
     _check_shape(data)
     saved = await _save_cards(actor, tenant_id, base, data, f"relationship removed: {cid}", [cid])
     return {**saved, "card_id": cid}
+
+
+async def add_link_card(
+    actor: str,
+    tenant_id: uuid.UUID,
+    step_id: uuid.UUID,
+    from_table: str,
+    keys: str,
+    to_table: str,
+    ref_keys: str,
+    note: str,
+) -> dict[str, Any]:
+    """Declare a link the customer's view is missing. It is locked, so a rerun keeps it, and the
+    mapper reads it like the ones the view declares."""
+    base = await _cards_base(tenant_id, step_id)
+    profile = (base.input or {}).get("profile", {})
+    try:
+        data, cid = dc.add_link(
+            base.output or {}, from_table, keys, to_table, ref_keys, note, profile
+        )
+    except ValueError as exc:
+        raise Invalid(str(exc)) from exc
+    _check_shape(data)
+    saved = await _save_cards(actor, tenant_id, base, data, f"link added: {cid}", [cid])
+    return {**saved, "card_id": cid, "locked": True}
 
 
 async def add_join_card(

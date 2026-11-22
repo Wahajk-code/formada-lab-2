@@ -585,6 +585,14 @@ class JoinAddIn(BaseModel):
     references_column: str = Field(max_length=200)
 
 
+class LinkAddIn(BaseModel):
+    from_table: str = Field(max_length=200)
+    keys: str = Field(max_length=200)
+    to_table: str = Field(max_length=200)
+    ref_keys: str = Field(max_length=200)
+    note: str = Field(default="", max_length=2000)
+
+
 class CardApplyIn(BaseModel):
     changes: list[dict[str, Any]] = Field(max_length=40)
     note: str = Field(default="", max_length=2000)
@@ -631,6 +639,23 @@ async def onboarding_add_join(
         body.column,
         body.references_table,
         body.references_column,
+    )
+
+
+@router.post("/workspaces/{tenant_id}/onboarding/discovery/{step_id}/cards/add-link")
+async def onboarding_add_link(
+    tenant_id: uuid.UUID, step_id: uuid.UUID, body: LinkAddIn, staff: ConfigWriter
+) -> dict[str, Any]:
+    """Declare a link the customer's view is missing; it is locked so a rerun keeps it."""
+    return await onboarding_items.add_link_card(
+        staff.actor,
+        tenant_id,
+        step_id,
+        body.from_table,
+        body.keys,
+        body.to_table,
+        body.ref_keys,
+        body.note,
     )
 
 

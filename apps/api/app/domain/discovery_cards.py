@@ -16,6 +16,8 @@ import copy
 import re
 from typing import Any
 
+from app.domain import semantic
+
 MAX_MENTIONS = 8  # chips one instruction may carry (a group is one chip)
 MAX_EXPANDED = 60  # cards those chips may expand to
 LARGE_CHANGES = 6  # more changed fields than this needs a second confirmation
@@ -45,7 +47,9 @@ FIELDS: dict[str, tuple[str, ...]] = {
     "coverage": ("status", "evidence"),
     "question": ("why", "to"),
     "view": ("purpose", "grain", "caveats"),
+    "link": ("keys", "to_table", "ref_keys", "note"),
 }
+LINK_ENDS = ("keys", "to_table", "ref_keys")
 JOIN_ENDS = ("column", "references_table", "references_column")
 LIST_FIELDS = {"key_columns", "caveats"}
 ENUMS: dict[str, tuple[str, ...]] = {
@@ -62,6 +66,7 @@ SECTION_OF = {
     "issue": "gaps",
     "coverage": "gaps",
     "question": "gaps",
+    "link": "relationships",
 }
 LISTS = {
     "table": "tables",
@@ -69,6 +74,7 @@ LISTS = {
     "coverage": "coverage",
     "question": "questions",
     "view": "semantic_views",
+    "link": "links",
 }
 PREFIX = {
     "overview": "o",
@@ -78,6 +84,7 @@ PREFIX = {
     "coverage": "c",
     "question": "q",
     "view": "v",
+    "link": "l",
 }
 # Kinds a rerun may have dropped that we put back when they are locked. A table is not put back:
 # tables come from the scan.
@@ -141,6 +148,9 @@ def _name(kind: str, item: dict[str, Any]) -> str:
         return str(item.get("view", ""))
     if kind == "coverage":
         return str(item.get("family", ""))
+    if kind == "link":
+        left = f"{item.get('from_table', '')}.{item.get('keys', '')}"
+        return f"{left}>{item.get('to_table', '')}.{item.get('ref_keys', '')}"
     if kind == "issue":
         return slug(item.get("title", ""))
     return slug(item.get("question", ""))
@@ -163,6 +173,9 @@ def label(kind: str, item: dict[str, Any], owner: str = "") -> str:
         return f"{left} to {right}"
     if kind == "coverage":
         return str(item.get("family", "")).replace("_", " ")
+    if kind == "link":
+        ends = f"{_short(item.get('from_table', ''))} to {_short(item.get('to_table', ''))}"
+        return f"{ends} by {item.get('keys', '')}"
     if kind == "issue":
         return str(item.get("title", ""))
     return str(item.get("question", ""))[:80]
@@ -280,6 +293,18 @@ def groups(out: dict[str, Any]) -> dict[str, dict[str, Any]]:
     )
     add("g:views", "Customer semantic views", views)
     add("g:questions", "Questions for the customer", questions)
+    all_links = [card_id("link", lk) for lk in out.get("links") or []]
+    for key in AREA_KEYS:
+        add(
+            f"g:links:{key}",
+            f"{AREA_LABEL[key]} links",
+            [
+                card_id("link", lk)
+                for lk in out.get("links") or []
+                if area_of(lk.get("from_table", "")) == key
+            ],
+        )
+    add("g:links", "All links in the customer's views", all_links)
     add("g:joins", "All relationships", all_joins)
     for t in out.get("tables") or []:
         own = [join_id(str(t.get("table", "")), j) for j in t.get("joins") or []]
@@ -291,7 +316,7 @@ def groups(out: dict[str, Any]) -> dict[str, dict[str, Any]]:
         + [card_id("table", {"table": t}) for t in tables]
         + views,
     )
-    add("g:section:relationships", "Relationships", all_joins)
+    add("g:section:relationships", "Relationships", all_joins + all_links)
     add(
         "g:section:gaps",
         "Coverage gaps",
@@ -472,6 +497,29 @@ def apply_changes(
                         new if c == cid else c for c in data["unlocked_cards"]
                     ]
             touched.add(new)
+        elif kind == "link" and field in LINK_ENDS:
+            try:
+                fixed = check_link({**item, field: value}, profile)
+            except ValueError as exc:
+                refused.append({"card_id": asked, "field": field, "reason": str(exc)})
+                continue
+            new = card_id("link", fixed)
+            if new != cid and new in cards:
+                refused.append({"card_id": asked, "field": field,
+                                "reason": "that link already exists"})  # fmt: skip
+                continue
+            value = fixed[field]
+            item.update({k: fixed[k] for k in ("from_table", *LINK_ENDS)})
+            if new != cid:
+                item["source"] = "team"
+                # The customer's own link is replaced, so a rerun must not bring it back.
+                data["removed_links"] = sorted(set(data.get("removed_links", [])) | {cid})
+                alias[cid] = new
+                if cid in data.get("unlocked_cards", []):
+                    data["unlocked_cards"] = [
+                        new if c == cid else c for c in data["unlocked_cards"]
+                    ]
+            touched.add(new)
         else:
             item[field] = value
             touched.add(cid)
@@ -492,7 +540,10 @@ def apply_changes(
 
 def remove_join(out: dict[str, Any], cid: str) -> dict[str, Any]:
     """A copy of the answer without one join. The join stays removed after a rerun. ValueError with
-    a plain reason when it cannot be removed (locked, or not there)."""
+    a plain reason when it cannot be removed (locked, or not there). A link of the customer's
+    views is removed the same way."""
+    if cid.startswith("l:"):
+        return remove_link(out, cid)
     if cid not in joins(out):
         raise ValueError("this relationship is not in the proposal")
     if reason := is_locked(out, cid):
@@ -503,6 +554,162 @@ def remove_join(out: dict[str, Any], cid: str) -> dict[str, Any]:
     data["removed_joins"] = sorted(set(data.get("removed_joins", [])) | {cid})
     data["unlocked_cards"] = [c for c in data.get("unlocked_cards", []) if c != cid]
     return data
+
+
+# ---- links: the joins the customer's own views declare ----------------------------------------
+
+
+def seed_links(profile: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """Every link the customer's views declare, once, as cards the team can change."""
+    found: dict[str, dict[str, Any]] = {}
+    for v in (profile or {}).get("semantic_views", []):
+        for ln in semantic.parse_links(v.get("relationships", [])):
+            item = {
+                "view": v.get("view", ""),
+                "from_table": ln["from"],
+                "keys": ln["keys"],
+                "to_table": ln["to"],
+                "ref_keys": ln["ref_keys"],
+                "source": "view",
+                "note": "",
+            }
+            found.setdefault(card_id("link", item), item)
+    return list(found.values())
+
+
+def fresh_links(
+    profile: dict[str, Any] | None, previous: dict[str, Any] | None = None
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """The links for a new analysis: the customer's views as declared now, minus the links the
+    team removed or replaced, plus the links the team added or changed, and their notes."""
+    before = previous or {}
+    removed = sorted(set(before.get("removed_links", [])))
+    seeded = [lk for lk in seed_links(profile) if card_id("link", lk) not in removed]
+    ids = {card_id("link", lk) for lk in seeded}
+    notes = {card_id("link", lk): lk.get("note", "") for lk in before.get("links", [])}
+    for lk in seeded:
+        lk["note"] = notes.get(card_id("link", lk), "")
+    kept = [
+        copy.deepcopy(lk)
+        for lk in before.get("links", [])
+        if lk.get("source") == "team" and card_id("link", lk) not in ids
+    ]
+    return seeded + kept, removed
+
+
+def with_links(out: dict[str, Any], profile: dict[str, Any] | None) -> dict[str, Any]:
+    """The answer with its links filled in. Answers made before links were cards get them from
+    the profile, so every discovery answer has them."""
+    if "links" in out or "tables" not in out:
+        return out
+    links, removed = fresh_links(profile, out)
+    return {**out, "links": links, "removed_links": removed}
+
+
+def _dimensions(profile: dict[str, Any] | None, table: str) -> tuple[str | None, set[str] | None]:
+    """The view's own name for a table and its field names; the names are None when the list
+    was shortened (so a field we cannot see is not wrongly refused)."""
+    for v in (profile or {}).get("semantic_views", []):
+        for t in v.get("tables", []):
+            if str(t.get("table", "")).upper() == str(table).upper():
+                dims = t.get("dimensions", [])
+                total = t.get("dimension_count", len(dims))
+                names = {str(d.get("name", "")).upper() for d in dims}
+                return str(t["table"]), (names if total <= len(dims) else None)
+    return None, None
+
+
+def check_link(link: dict[str, Any], profile: dict[str, Any] | None) -> dict[str, Any]:
+    """The link with its tables named as the view names them, or ValueError with a plain reason."""
+    if profile is None:
+        return link
+    fixed = dict(link)
+    for end, cols in (("from_table", "keys"), ("to_table", "ref_keys")):
+        name, fields = _dimensions(profile, str(link.get(end, "")))
+        if name is None:
+            raise ValueError(f"{_short(str(link.get(end, '')))} is not in the customer's views")
+        fixed[end] = name
+        wanted = [w for w in re.split(r"[,\s]+", str(link.get(cols, ""))) if w]
+        if not wanted:
+            raise ValueError(f"{cols.replace('_', ' ')} cannot be empty")
+        if fields is not None:
+            for w in wanted:
+                if w.upper() not in fields:
+                    raise ValueError(f"{_short(name)} has no field {w}")
+    return fixed
+
+
+def remove_link(out: dict[str, Any], cid: str) -> dict[str, Any]:
+    """A copy of the answer without one link. It stays removed after a rerun."""
+    found = index(out).get(cid)
+    if found is None or found[0] != "link":
+        raise ValueError("this link is not in the proposal")
+    if reason := is_locked(out, cid):
+        raise ValueError(reason)
+    data: dict[str, Any] = copy.deepcopy(out)
+    data["links"] = [lk for lk in data.get("links", []) if card_id("link", lk) != cid]
+    data["removed_links"] = sorted(set(data.get("removed_links", [])) | {cid})
+    data["unlocked_cards"] = [c for c in data.get("unlocked_cards", []) if c != cid]
+    return data
+
+
+def add_link(
+    out: dict[str, Any],
+    from_table: str,
+    keys: str,
+    to_table: str,
+    ref_keys: str,
+    note: str,
+    profile: dict[str, Any] | None,
+) -> tuple[dict[str, Any], str]:
+    """A copy of the answer with a link the team declares. It starts locked like every card, so a
+    rerun keeps it. Returns (answer, the new card id). ValueError with a plain reason."""
+    link = check_link(
+        {
+            "from_table": coerce_value("from_table", from_table),
+            "keys": coerce_value("keys", keys),
+            "to_table": coerce_value("to_table", to_table),
+            "ref_keys": coerce_value("ref_keys", ref_keys),
+        },
+        profile,
+    )
+    view = next(
+        (
+            v.get("view", "")
+            for v in (profile or {}).get("semantic_views", [])
+            if any(str(t.get("table", "")) == link["from_table"] for t in v.get("tables", []))
+        ),
+        "",
+    )
+    item = {**link, "view": view, "source": "team", "note": str(note or "").strip()[:MAX_TEXT]}
+    cid = card_id("link", item)
+    if cid in index(out):
+        raise ValueError("that link already exists")
+    data: dict[str, Any] = copy.deepcopy(out)
+    data.setdefault("links", []).append(item)
+    data["removed_links"] = [c for c in data.get("removed_links", []) if c != cid]
+    return data, cid
+
+
+def effective_profile(profile: dict[str, Any], out: dict[str, Any]) -> dict[str, Any]:
+    """The profile with each view's links replaced by the team's reviewed links, for the mapper and
+    the guide. Without reviewed links the profile is returned as it is."""
+    if "links" not in out:
+        return profile
+    known = {
+        str(t.get("table", "")): v.get("view", "")
+        for v in profile.get("semantic_views", [])
+        for t in v.get("tables", [])
+    }
+    views = []
+    for v in profile.get("semantic_views", []):
+        mine = [
+            f"{lk['from_table']} ({lk['keys']}) -> {lk['to_table']} ({lk['ref_keys']})"
+            for lk in out["links"]
+            if (lk.get("view") or known.get(lk.get("from_table", ""), "")) == v.get("view")
+        ]
+        views.append({**v, "relationships": mine})
+    return {**profile, "semantic_views": views}
 
 
 def add_join(
@@ -550,6 +757,10 @@ def restore_locked(new: dict[str, Any], previous: dict[str, Any]) -> dict[str, A
     unlocked = set(previous.get("unlocked_cards", []))
     removed = list(previous.get("removed_joins", []))
     data: dict[str, Any] = copy.deepcopy(new)
+    if previous.get("removed_links"):
+        gone = set(previous["removed_links"])
+        data["removed_links"] = sorted(gone)
+        data["links"] = [lk for lk in data.get("links", []) if card_id("link", lk) not in gone]
     for t in data.get("tables") or []:
         t["joins"] = [j for j in t.get("joins") or [] if join_id(str(t["table"]), j) not in removed]
     if removed:
@@ -562,7 +773,7 @@ def restore_locked(new: dict[str, Any], previous: dict[str, Any]) -> dict[str, A
         if cid in fresh and fresh[cid][0] == kind:
             for field in FIELDS[kind]:
                 fresh[cid][1][field] = copy.deepcopy(item.get(field))
-        elif kind in RE_ADD:
+        elif kind in RE_ADD or (kind == "link" and item.get("source") == "team"):
             data.setdefault(LISTS[kind], []).append(copy.deepcopy(item))
         elif kind == "join":
             owner_name = old_joins[cid][0].get("table")

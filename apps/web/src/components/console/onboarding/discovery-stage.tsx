@@ -12,6 +12,7 @@ import {
   editDiscoveryCard,
   lockDiscoveryCard,
   removeDiscoveryJoin,
+  addDiscoveryLink,
   reviseDiscoverySection,
   suggestCardChanges,
 } from "@/app/console-actions";
@@ -20,9 +21,10 @@ import { ChatJump } from "@/components/console/onboarding/chat-jump";
 import { appendTurns, truncateTurns, useChatTurns } from "@/lib/chat-store";
 import { contextOf, idsToSend, missingNote, questionWithMentions } from "@/lib/mentions";
 import { cardId, cardList, groupIndex, type CardSuggestion } from "@/lib/discovery-cards";
+import { ViewDiagram } from "@/components/console/onboarding/view-diagram";
 import { EngineerChat } from "@/components/console/onboarding/engineer-chat";
 import { cn } from "@/lib/utils";
-import { CoverageRow, FullGuide, IssueRow, QuestionRow, ViewJoins } from "@/components/console/onboarding/full-guide";
+import { CoverageRow, FullGuide, IssueRow, QuestionRow } from "@/components/console/onboarding/full-guide";
 import { fmt, humanName, makeNamer, Section, Status, Sub } from "@/components/console/onboarding/review-kit";
 import { Icon, type IconName } from "@/components/ui/icon";
 import type { AssistantTurn } from "@/lib/client-api";
@@ -36,7 +38,6 @@ const STARTERS: Record<Section, string[]> = {
   relationships: ["Which join needs review?", "How do the tables connect?"],
   gaps: ["Why is this area missing?", "What should we ask the customer?"],
 };
-const short = (t: string) => t.split(".").pop() ?? t;
 const schemaOf = (t: string) => {
   const parts = t.split(".");
   return parts.length > 1 ? parts[parts.length - 2] : "SOURCE";
@@ -70,187 +71,6 @@ type TableRow = {
   columns: { column: string; fill_pct: number | null }[];
 };
 
-// ---------------------------------------------------------------------------------------------
-// Table relationship diagram (design: discoverySchema)
-// ---------------------------------------------------------------------------------------------
-
-/** Split a long table name into lines that fit the card, breaking after underscores. */
-function wrapName(name: string, perLine = 23): string[] {
-  const lines: string[] = [];
-  let cur = "";
-  for (const token of name.split(/(?<=_)/)) {
-    const rest = token;
-    if (rest.length > perLine) {
-      // One very long word: split it into even parts, not a full line and a stub.
-      if (cur) lines.push(cur);
-      cur = "";
-      const parts = Math.ceil(rest.length / perLine);
-      const size = Math.ceil(rest.length / parts);
-      for (let i = 0; i < rest.length; i += size) lines.push(rest.slice(i, i + size));
-      continue;
-    }
-    if (cur && (cur + rest).length > perLine) {
-      lines.push(cur);
-      cur = rest;
-    } else cur += rest;
-  }
-  if (cur) lines.push(cur);
-  return lines.length ? lines : [name];
-}
-/** Card header height: the kind line plus one line per wrapped name line. */
-const headerFor = (lines: number) => Math.round(36 + 14.4 * lines);
-
-function SchemaDiagram({ tables }: { tables: TableRow[] }) {
-  const inset = 22;
-  const tableWidth = 190;
-  const columnGap = 48;
-  const fieldHeight = 23;
-  const rowGap = 52;
-  const maxFields = 5;
-  const nameLines = new Map(tables.map((t) => [t.table, wrapName(short(t.table))]));
-  const headOf = (table: string) => headerFor(nameLines.get(table)?.length ?? 1);
-  const headerHeight = Math.max(50, ...tables.map((t) => headOf(t.table)));
-  const maxTableHeight = headerHeight + fieldHeight * maxFields + 6;
-  const rowPitch = maxTableHeight + rowGap;
-  const rowsN = Math.max(1, Math.ceil(tables.length / 3));
-  const width = inset * 2 + tableWidth * 3 + columnGap * 2;
-  const height = inset * 2 + (rowsN - 1) * rowPitch + maxTableHeight + rowGap / 2;
-  const byName = new Map(tables.map((t) => [t.table, t]));
-  const resolve = (name: string) => tables.find((t) => t.table === name || short(t.table).toUpperCase() === short(name).toUpperCase());
-
-  // Which fields to draw: the join ends first, then the keys, up to five.
-  const wanted = new Map<string, string[]>(tables.map((t) => [t.table, []]));
-  const add = (t: string, c: string) => {
-    const list = wanted.get(t);
-    if (list && !list.includes(c) && list.length < maxFields) list.push(c);
-  };
-  for (const t of tables)
-    for (const j of t.joins) {
-      const ref = resolve(j.references_table);
-      add(t.table, j.column);
-      if (ref) add(ref.table, j.references_column);
-    }
-  for (const t of tables) for (const k of t.keys) add(t.table, short(k));
-
-  // Facts first, so the joins read from the middle of the picture outward.
-  const order = [...tables].sort((a, b) => Number(b.kind === "fact") - Number(a.kind === "fact"));
-  const placed = new Map(
-    order.map((t, i) => {
-      const row = Math.floor(i / 3);
-      return [t.table, { t, row, x: inset + (i % 3) * (tableWidth + columnGap), y: inset + row * rowPitch, fields: wanted.get(t.table) ?? [] }] as const;
-    }),
-  );
-  const linked = new Set<string>();
-  const wires = tables.flatMap((t, index) =>
-    t.joins.flatMap((j) => {
-      const refTable = resolve(j.references_table);
-      const from = placed.get(t.table);
-      const to = refTable ? placed.get(refTable.table) : undefined;
-      if (!from || !to || from === to || !from.fields.includes(j.column) || !to.fields.includes(j.references_column)) return [];
-      linked.add(`${t.table}.${j.column}`);
-      linked.add(`${to.t.table}.${j.references_column}`);
-      const fromRight = from.x <= to.x;
-      const toRight = to.x <= from.x;
-      const startX = from.x + (fromRight ? tableWidth : 0);
-      const endX = to.x + (toRight ? tableWidth : 0);
-      const portY = (p: typeof from, f: string) => p.y + headOf(p.t.table) + fieldHeight * (p.fields.indexOf(f) + 0.5);
-      const startY = portY(from, j.column);
-      const endY = portY(to, j.references_column);
-      const bendX = (startX + endX) / 2;
-      const aisleRow = Math.min(from.row, to.row);
-      const aisleY = inset + aisleRow * rowPitch + maxTableHeight + rowGap / 2;
-      const lane = 12 + (index % 3) * 5;
-      const startRail = startX + (fromRight ? lane : -lane);
-      const endRail = endX + (toRight ? lane : -lane);
-      const route =
-        from.row === to.row && Math.abs(startX - endX) === columnGap
-          ? `C ${bendX} ${startY} ${bendX} ${endY} ${endX} ${endY}`
-          : `H ${startRail} V ${aisleY} H ${endRail} V ${endY} H ${endX}`;
-      const kind = j.confidence === "high" ? "declared" : j.confidence === "medium" ? "inferred" : "corrected";
-      return [
-        <g key={`${t.table}.${j.column}-${j.references_table}`} className={`schema-wire schema-wire-${kind}`}>
-          <path d={`M ${startX} ${startY} ${route}`} />
-          <circle cx={startX} cy={startY} r={3.5} />
-          <circle cx={endX} cy={endY} r={3.5} />
-        </g>,
-      ];
-    }),
-  );
-  void byName;
-  return (
-    <figure className="discovery-schema">
-      <figcaption id="discovery-schema-caption">
-        <strong>
-          <Icon name="network" size={17} /> Table relationship diagram
-        </strong>
-        <span>
-          {tables.length} tables · {wires.length} {wires.length === 1 ? "join" : "joins"}
-        </span>
-      </figcaption>
-      <div className="schema-scroll" role="region" aria-labelledby="discovery-schema-caption" tabIndex={0}>
-        <div
-          className="schema-canvas"
-          style={{
-            ["--schema-table-width" as string]: `${tableWidth}px`,
-            ["--schema-header-height" as string]: `${headerHeight}px`,
-            ["--schema-field-height" as string]: `${fieldHeight}px`,
-            width,
-            height,
-          }}
-        >
-          <svg className="schema-wires" viewBox={`0 0 ${width} ${height}`} aria-hidden="true">
-            {wires}
-          </svg>
-          {[...placed.values()].map(({ t, x, y, fields }) => (
-            <article
-              key={t.table}
-              className="schema-table"
-              style={{ left: x, top: y, ["--schema-header-height" as string]: `${headOf(t.table)}px` }}
-              title={t.table}
-            >
-              <header>
-                <span>
-                  <Icon name="table" size={13} /> {t.kind} / {t.schema}
-                </span>
-                <h5>
-                  {(nameLines.get(t.table) ?? [short(t.table)]).map((line) => (
-                    <span key={line}>{line}</span>
-                  ))}
-                </h5>
-              </header>
-              <ul aria-label={`${short(t.table)} fields`}>
-                {fields.map((f) => (
-                  <li key={f} className={linked.has(`${t.table}.${f}`) ? "is-linked" : ""}>
-                    <code title={f}>{f}</code>
-                    {t.keys.some((k) => short(k).toUpperCase() === f.toUpperCase()) && (
-                      <span aria-label="Key" title="Key">
-                        PK
-                      </span>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            </article>
-          ))}
-        </div>
-      </div>
-      <div className="schema-legend">
-        <span className="schema-wire-declared">
-          <i aria-hidden="true" /> High confidence
-        </span>
-        <span className="schema-wire-inferred">
-          <i aria-hidden="true" /> Medium
-        </span>
-        <span className="schema-wire-corrected">
-          <i aria-hidden="true" /> Low
-        </span>
-        <span className="schema-scroll-hint">
-          <Icon name="arrow-right" size={13} /> Scroll to see more
-        </span>
-      </div>
-    </figure>
-  );
-}
 
 /** Measured facts the chat can be given with @ (read-only). Ids match `domain/discovery_cards.fact`. */
 function factList(guide: OnboardingGuide | null): { id: string; label: string }[] {
@@ -328,6 +148,12 @@ export function DiscoveryStage({
     editing,
     setEditing,
     tables: (out.tables as any[]).map((t) => t.table),
+    viewTables: (guide?.semantic_views ?? []).flatMap((v) => v.tables.map((t) => t.table)),
+    onAddLink: async (body) => {
+      const res = await addDiscoveryLink(workspaceId, stepId, body);
+      if (res.ok) router.refresh();
+      return res.ok ? null : res.error;
+    },
     onLock: (id, lock) => {
       void lockDiscoveryCard(workspaceId, stepId, id, lock).then((res) => {
         if (res.ok) router.refresh();
@@ -584,8 +410,7 @@ export function DiscoveryStage({
 
         {section === "relationships" && (
           <div className="rv">
-            <ViewJoins guide={guide} cards={cards} />
-            <SchemaDiagram tables={tables} />
+            <ViewDiagram out={out} guide={guide} cards={cards} />
             <Section icon="network" title="How the directly-read tables join" point="Tables we read straight from the warehouse, not through a view. Mapping uses these joins to add names, locations and dates to every row. A wrong join gives wrong numbers, so check the low ones first.">
               {joinCards.length ? (
                 (out.tables as any[])
