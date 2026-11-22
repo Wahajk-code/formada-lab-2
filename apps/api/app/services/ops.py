@@ -1,4 +1,4 @@
-"""Operational endpoints for n8n: health (WF7)."""
+"""Operational checks: health, run every hour by the scheduler (ADR 0034)."""
 
 from datetime import UTC, datetime, timedelta
 from typing import Any

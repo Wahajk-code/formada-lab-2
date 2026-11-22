@@ -16,6 +16,7 @@ const CRUMBS: Record<string, string> = {
   "/console": "Overview",
   "/console/onboarding": "Onboarding",
   "/console/workspaces": "Workspace",
+  "/console/workflows": "Workflows",
   "/console/config": "Config & rules",
   "/console/agents": "AI agents",
   "/console/ai-lab": "AI lab",

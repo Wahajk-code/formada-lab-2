@@ -1,4 +1,4 @@
-"""WF4 weekly digest: each person gets their new cards and value captured (spec: n8n workflows).
+"""WF4 weekly digest: each person gets their new cards and value captured (spec: workflows).
 
 "Their" cards follow card ownership: the roles they hold as owner, plus vacant roles routing to
 them. Value captured covers the initiatives they own. People with nothing new get no email.
@@ -133,7 +133,7 @@ async def send(tenant_id: uuid.UUID, slot: datetime) -> dict[str, Any]:
         s.add(
             AuditLog(
                 tenant_id=tenant_id,
-                actor="n8n",
+                actor="scheduler",
                 action="digest.sent",
                 object_type="tenant",
                 object_id=str(tenant_id),

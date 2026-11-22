@@ -1,6 +1,6 @@
 """Run scheduling and status rules (ADR 0009, 0019).
 
-All slots are in the tenant's time zone (spec: n8n workflows):
+All slots are in the tenant's time zone (spec: workflows; ADR 0034):
   weekly       Monday 05:00            WF1
   daily_check  daily 05:00, not Monday WF2 (Monday has the full weekly run)
   remeasure    daily 06:00             WF3

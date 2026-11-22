@@ -80,6 +80,14 @@ export async function signOutStaff() {
   redirect("/login?side=internal");
 }
 
+export async function setFlowPaused(key: string, paused: boolean) {
+  return attempt(() => (paused ? consoleApi.pauseFlow(key) : consoleApi.resumeFlow(key)), ["/console/workflows"]);
+}
+
+export async function runFlowNow(key: string, tenantId: string | null) {
+  return attempt(() => consoleApi.runFlow(key, tenantId), ["/console/workflows"]);
+}
+
 export async function runWorkspaceNow(id: string) {
   return attempt(() => consoleApi.runNow(id));
 }

@@ -57,6 +57,40 @@ const send = <T = Record<string, unknown>>(
     body: body === undefined ? undefined : JSON.stringify(body),
   });
 
+// ---- workflows (the in-app scheduler, ADR 0034) ----------------------------------------------
+
+export type FlowStep = {
+  key: string;
+  label: string;
+  does: string;
+  scope: "workspace" | "role";
+  reads: string[];
+  writes: string[];
+  ai: boolean;
+  on_error: "fail_run" | "fail_step" | "log";
+  failure: string;
+  timeout_s: number;
+};
+export type FlowExecution = { trigger: string; status: string; started_at: string; ended_at: string | null; workspaces: number; note: string };
+export type FlowRun = { run_id: string; workspace: string; workspace_id: string; status: string; started_at: string; ended_at: string | null; error: string | null };
+export type FlowView = {
+  key: string;
+  name: string;
+  purpose: string;
+  run_type: string | null;
+  schedule: string | null;
+  schedule_note: string;
+  also: string;
+  paused: boolean;
+  next_at: string | null;
+  steps: FlowStep[];
+  reads: string[];
+  writes: string[];
+  history: FlowExecution[];
+  runs: FlowRun[];
+};
+export type FlowsOverview = { enabled: boolean; lab: boolean; tries: number; wait_s: number; max_runs_per_workspace: number; now: string; flows: FlowView[] };
+
 export type StaffMe = {
   email: string;
   name: string;
@@ -767,6 +801,10 @@ export const consoleApi = {
   run: (id: string, runId: string) =>
     request<RunDetail>(`/workspaces/${id}/runs/${runId}`),
   runNow: (id: string) => send("POST", `/workspaces/${id}/run`),
+  flows: () => request<FlowsOverview>("/flows"),
+  pauseFlow: (key: string) => send("POST", `/flows/${key}/pause`, {}),
+  resumeFlow: (key: string) => send("POST", `/flows/${key}/resume`, {}),
+  runFlow: (key: string, tenantId: string | null) => send("POST", `/flows/${key}/run`, { tenant_id: tenantId }),
   suggestSettings: (workspaceId: string | null, goal: string) =>
     send<SettingsAdvice>("POST", workspaceId ? `/workspaces/${workspaceId}/config/suggest` : "/config/suggest", { goal }),
   suggestMeasures: (id: string, goal: string) =>

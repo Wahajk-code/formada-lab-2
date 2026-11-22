@@ -124,7 +124,7 @@ async def mark_step_failed(
     step: str,
     error: str,
 ) -> None:
-    """Final state after n8n gave up; keeps the attempts the API actually saw."""
+    """Final state after the scheduler gave up; keeps the attempts the API actually saw."""
     stmt = insert(RunStep).values(
         tenant_id=tenant_id,
         run_id=run_id,

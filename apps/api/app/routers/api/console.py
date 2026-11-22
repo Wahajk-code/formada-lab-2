@@ -9,9 +9,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from app.core.auth import CurrentStaff, StaffPrincipal, TokenAuth, get_auth
+from app.core.errors import Invalid, NotFound
 from app.core.settings import get_settings
+from app.domain import flows as fl
 from app.domain.auth import PERMISSIONS, staff_can
-from app.integrations import n8n
 from app.services import (
     agents,
     ai_lab,
@@ -24,9 +25,12 @@ from app.services import (
     onboarding_collab,
     onboarding_items,
     onboarding_review,
+    scheduler,
 )
 from app.services import auth as auth_service
 from app.services import feedback as feedback_service
+from app.services import flows as runner
+from app.services.scheduler import LAB_NO_RUNS
 
 router = APIRouter(prefix="/console", tags=["console"])
 
@@ -130,14 +134,53 @@ async def run_detail(
 @router.post("/workspaces/{tenant_id}/run")
 async def run_now(tenant_id: uuid.UUID, staff: Trigger) -> dict[str, Any]:
     if get_settings().lab_mode:
-        raise HTTPException(
-            status.HTTP_409_CONFLICT,
-            "Trial runs are off in the review lab: it has no scheduler (n8n) and makes no "
-            "cards. They run on a live workspace.",
-        )
-    if not await n8n.run_now(tenant_id):
-        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "n8n is not reachable")
+        raise HTTPException(status.HTTP_409_CONFLICT, LAB_NO_RUNS)
+    scheduler.run_now(tenant_id)
     return {"status": "started"}
+
+
+# ---- workflows (the in-app scheduler, ADR 0034) -----------------------------------------------
+
+
+class FlowRunIn(BaseModel):
+    tenant_id: uuid.UUID | None = None
+
+
+@router.get("/flows")
+async def flows_overview(staff: CurrentStaff) -> dict[str, Any]:
+    """Every workflow with its steps, tables, schedule, pause state and latest runs."""
+    return await scheduler.overview()
+
+
+def _flow(flow_key: str) -> fl.Flow:
+    if flow_key not in fl.FLOWS:
+        raise NotFound(flow_key)
+    return fl.FLOWS[flow_key]
+
+
+@router.post("/flows/{flow_key}/pause")
+async def flow_pause(flow_key: str, staff: Trigger) -> dict[str, Any]:
+    """A paused flow skips its scheduled starts. Run now still works."""
+    _flow(flow_key)
+    return await scheduler.set_paused(staff.email, flow_key, True)
+
+
+@router.post("/flows/{flow_key}/resume")
+async def flow_resume(flow_key: str, staff: Trigger) -> dict[str, Any]:
+    _flow(flow_key)
+    return await scheduler.set_paused(staff.email, flow_key, False)
+
+
+@router.post("/flows/{flow_key}/run")
+async def flow_run(flow_key: str, body: FlowRunIn, staff: Trigger) -> dict[str, Any]:
+    """Start a flow now for one workspace (or, for health and the feedback compiler, for all)."""
+    flow = _flow(flow_key)
+    if get_settings().lab_mode:
+        raise HTTPException(status.HTTP_409_CONFLICT, LAB_NO_RUNS)
+    if body.tenant_id is None and (flow.run_type or flow_key == "digest"):
+        raise Invalid("choose a workspace to run this for")
+    runner.launch(flow_key, trigger="manual", tenant_id=body.tenant_id)
+    return {"status": "started", "flow": flow_key}
 
 
 # ---- config ---------------------------------------------------------------------------------

@@ -1,5 +1,5 @@
 /** Help center content, EN and FR. Each article: a summary and sections of paragraphs or
- *  definition lists. Keep it in step with the product: docs/n8n.md, docs/adr and the spec. */
+ *  definition lists. Keep it in step with the product: docs/scheduler.md, docs/adr and the spec. */
 
 export type Block = { p: string } | { dl: [string, string][] } | { steps: string[] };
 export type Section = { h: string; blocks: Block[] };
@@ -279,23 +279,24 @@ const en: Article[] = [
     slug: "workflows",
     group: "Behind the scenes",
     title: "Runs and workflows",
-    summary: "WF0 to WF7: what runs when, and what each step does.",
+    summary: "The six workflows: what runs when, and what each step does.",
     sections: [
       {
         h: "The workflows",
         blocks: [
           {
             dl: [
-              ["WF1 weekly run", "Monday 05:00. Runs every metric back to back (so the warehouse starts once), then for each role: detect signals, build the prompt, write cards with the AI, validate and store them. Ends with WF6."],
-              ["WF1a role pipeline", "The per-role part of WF1 and WF2. One role failing does not stop the others."],
-              ["WF2 daily check", "Every day at 05:00 except Monday. Runs the daily-check metrics and the metrics of daily-cadence roles; on a threshold breach, or for a daily role, runs the role pipeline for that role."],
-              ["WF3 remeasure", "Every day at 06:00. Measures initiatives due a midpoint or end measurement, then refreshes value captured."],
-              ["WF4 digest", "Monday 08:00. Emails each person their new cards and value captured."],
-              ["WF5 feedback compiler", "After each Not relevant or Impossible, and nightly. Turns repeated feedback into proposed rules."],
-              ["WF6 roll-up", "Refreshes each role's open-card counts and value captured, for itself and its team."],
-              ["WF7 health", "Hourly. Fails stale runs, checks warehouse credits against the cap, purges old AI logs, tests the warehouse login."],
-              ["WF0 error handler", "Marks the runs of a crashed workflow as failed."],
+              ["Weekly run", "Monday 05:00 in each workspace's time zone. Runs every metric back to back (so the warehouse starts once), then for each role: detect signals, build the prompt, write cards with the AI, validate and store them. Ends with the roll-up. One role failing does not stop the others."],
+              ["Daily check", "Every day at 05:00 except Monday. Runs the daily-check metrics and the metrics of daily-cadence roles; on a threshold breach, or for a daily role, runs the role pipeline for that role."],
+              ["Outcome measurement", "Every day at 06:00. Measures initiatives due a midpoint or end measurement, then refreshes value captured."],
+              ["Weekly digest", "Monday 08:00. Emails each person their new cards and value captured."],
+              ["Feedback compiler", "After each Not relevant or Impossible, and nightly. Turns repeated feedback into proposed rules."],
+              ["Health check", "Hourly. Fails stale runs, checks warehouse credits against the cap, purges old AI logs, tests the warehouse login."],
+              ["Roll-up", "Part of every run: refreshes each role's open-card counts and value captured, for itself and its team."],
             ],
+          },
+          {
+            p: "The internal team sees these as pictures, with the tables each step reads and writes, under Workflows in the console.",
           },
         ],
       },

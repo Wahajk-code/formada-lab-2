@@ -2,8 +2,8 @@
 
 Backends: fake (default, no tokens), OpenAI, Anthropic Claude and Google Gemini. The tenant's
 admin picks provider and model in Settings; API keys come from the environment/vault only.
-Every SDK runs with retries off: n8n owns retries, so a transient error is raised (503, n8n
-retries) and a permanent one (no credits, bad request, auth) becomes a handled failure.
+Every SDK runs with retries off: the scheduler owns retries, so a transient error is raised (the
+scheduler retries it) and a permanent one (no credits, bad request, auth) becomes a handled failure.
 """
 
 import asyncio
@@ -134,7 +134,7 @@ class OpenAILLM(_CardsFromStructured):
             )
         except openai.APIStatusError as exc:
             if _openai_transient(exc):
-                raise  # 503 to n8n, which retries
+                raise  # the scheduler retries
             return _failed("openai", self._model, started, f"{exc.status_code}: {exc.message}")
         usage = response.usage
         refusal = next(

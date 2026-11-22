@@ -6,7 +6,7 @@ it, lock the parts that are right, and re-run the rest.
 
 - It replays a saved snapshot of a customer's warehouse (names, types, counts; never rows), so no
   live Snowflake is needed. Claude runs live.
-- There is no n8n, no weekly run and no cards here. This is only the onboarding flow.
+- There is no scheduler, no weekly run and no cards here. This is only the onboarding flow.
 - Stack: Neon (Postgres), Render (API), Vercel (web app), the Anthropic API.
 
 See [DEPLOY.md](DEPLOY.md) to set it up. The code is generated from the main Formada repo by

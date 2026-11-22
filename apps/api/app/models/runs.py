@@ -42,6 +42,7 @@ class Run(UUIDPk, TenantScoped, Timestamped, Base):
     query_seconds: Mapped[Decimal] = mapped_column(Numeric(12, 3), default=Decimal(0))
     llm_tokens: Mapped[int] = mapped_column(Integer, default=0)
     error: Mapped[str | None] = mapped_column(Text)
+    # Who started the run: "scheduled", or the id of a manual start. (The column kept its old name.)
     n8n_execution_id: Mapped[str | None] = mapped_column(String(40), index=True)
 
 

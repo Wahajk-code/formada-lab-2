@@ -5,10 +5,11 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
 from app.core.auth import CurrentPrincipal, Principal
+from app.core.settings import get_settings
 from app.domain.access import is_admin
-from app.integrations import n8n
 from app.services import feedback as feedback_service
-from app.services import insights
+from app.services import insights, scheduler
+from app.services.scheduler import LAB_NO_RUNS
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -46,8 +47,8 @@ async def usage(principal: Admin) -> dict[str, Any]:
 
 @router.post("/runs")
 async def run_now(principal: Admin) -> dict[str, Any]:
-    """Trigger a weekly run for this tenant now (spec: POST /api/runs) through WF1."""
-    started = await n8n.run_now(principal.tenant_id)
-    if not started:
-        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "n8n is not reachable")
+    """Trigger a weekly run for this tenant now (spec: POST /api/runs)."""
+    if get_settings().lab_mode:
+        raise HTTPException(status.HTTP_409_CONFLICT, LAB_NO_RUNS)
+    scheduler.run_now(principal.tenant_id)
     return {"status": "started"}

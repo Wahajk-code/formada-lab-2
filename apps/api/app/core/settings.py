@@ -17,7 +17,7 @@ class Settings(BaseSettings):
 
     # /api/* connects as app_user (RLS: tenant + visible roles).
     database_url: str = "postgresql+asyncpg://app_user:app_user@localhost:55432/formada"
-    # /internal/* connects as app_service (RLS: tenant only).
+    # The scheduler and its steps connect as app_service (RLS: tenant only).
     database_service_url: str = (
         "postgresql+asyncpg://app_service:app_service@localhost:55432/formada"
     )
@@ -44,14 +44,15 @@ class Settings(BaseSettings):
     secrets_backend: Literal["env", "file"] = "env"
     secrets_file_path: str = "/run/secrets/formada.json"
 
-    internal_service_token: str = ""
     auth_jwt_secret: str = ""
     auth_token_ttl_minutes: int = 12 * 60
     # Password for the seeded demo people and staff (local only; set in .env, never committed).
     seed_user_password: str | None = None
 
-    # n8n webhooks the API pings (feedback -> WF5, manual run -> WF1). Unset = no pings.
-    n8n_webhook_base: str | None = None
+    # The in-app scheduler (ADR 0034). Off in the review lab (no live runs). Run one API instance
+    # with it on; a second would only repeat work the idempotency store already refuses.
+    scheduler_enabled: bool = True
+    scheduler_tick_seconds: int = 30
     # Digest email (WF4). Locally Mailpit; unset host = log instead of sending.
     smtp_host: str | None = None
     smtp_port: int = 1025

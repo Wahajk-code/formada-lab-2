@@ -1,7 +1,7 @@
 [project]
 name = "formada-api"
 version = "0.1.0"
-description = "Formada API: business rules, data, RLS, internal endpoints for n8n"
+description = "Formada API: business rules, data, RLS, the in-app scheduler"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [

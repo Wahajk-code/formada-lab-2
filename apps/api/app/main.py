@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -9,17 +10,13 @@ from app.core.errors import Conflict, Forbidden, Invalid, NotFound
 from app.core.logging import configure_logging, get_logger
 from app.core.settings import get_settings
 from app.routers import api as api_router
-from app.routers import internal as internal_router
 
 settings = get_settings()
 configure_logging(settings.log_level, settings.log_json)
 log = get_logger(__name__)
 
 if settings.env != "local":  # a deployed API refuses to start with weak or missing secrets
-    for name, value in (
-        ("AUTH_JWT_SECRET", settings.auth_jwt_secret),
-        ("INTERNAL_SERVICE_TOKEN", settings.internal_service_token),
-    ):
+    for name, value in (("AUTH_JWT_SECRET", settings.auth_jwt_secret),):
         if len(value) < 32:
             raise RuntimeError(f"{name} must be at least 32 characters outside local use")
 
@@ -36,8 +33,19 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         "api.startup",
         env=settings.env,
         llm=settings.llm_backend,
+        scheduler=settings.scheduler_enabled and not settings.lab_mode,
     )
+    # The in-app scheduler (ADR 0034). The review lab has no live runs, so it stays off there.
+    stop = asyncio.Event()
+    task: asyncio.Task[None] | None = None
+    if settings.scheduler_enabled and not settings.lab_mode:
+        from app.services import scheduler
+
+        task = asyncio.create_task(scheduler.loop(stop))
     yield
+    stop.set()
+    if task is not None:
+        await task
     log.info("api.shutdown")
 
 
@@ -54,7 +62,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(api_router.router)
-app.include_router(internal_router.router)
 
 
 @app.exception_handler(NotFound)
@@ -79,11 +86,8 @@ async def _invalid(_request: Request, exc: Invalid) -> JSONResponse:
 
 @app.exception_handler(Exception)
 async def _unexpected(request: Request, exc: Exception) -> JSONResponse:
-    """/internal/*: 503 + failed envelope so n8n retries. /api/*: opaque 500."""
+    """An unexpected error is logged with its trace and answered with an opaque 500."""
     log.exception("unhandled", path=request.url.path)
-    if request.url.path.startswith("/internal/"):
-        body = {"status": "failed", "error": f"{type(exc).__name__}: {str(exc)[:500]}"}
-        return JSONResponse(body, status_code=503)
     return JSONResponse({"detail": "internal error"}, status_code=500)
 
 

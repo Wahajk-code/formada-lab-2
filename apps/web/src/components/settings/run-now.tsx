@@ -8,7 +8,7 @@ import { useState, useTransition } from "react";
 import { runNow } from "@/app/actions";
 import { Button } from "@/components/ui/button";
 
-/** POST /api/runs: asks n8n to run WF1 for this workspace now. */
+/** POST /api/runs: starts the weekly run for this workspace now. */
 export function RunNow() {
   const t = useTranslations("usage");
   const router = useRouter();

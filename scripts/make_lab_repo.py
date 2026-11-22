@@ -101,8 +101,6 @@ services:
         sync: false
       - key: DATABASE_OWNER_URL
         sync: false
-      - key: INTERNAL_SERVICE_TOKEN
-        generateValue: true
       - key: AUTH_JWT_SECRET
         generateValue: true
       - key: APP_BASE_URL
@@ -132,7 +130,6 @@ ANTHROPIC_API_KEY=sk-ant-...                       # set a monthly spend limit i
 DATABASE_OWNER_URL=postgresql+asyncpg://app_owner:PASSWORD@ep-xxxx.REGION.aws.neon.tech/neondb?ssl=require
 DATABASE_URL=postgresql+asyncpg://app_user:PASSWORD@ep-xxxx.REGION.aws.neon.tech/neondb?ssl=require
 DATABASE_SERVICE_URL=postgresql+asyncpg://app_service:PASSWORD@ep-xxxx.REGION.aws.neon.tech/neondb?ssl=require
-INTERNAL_SERVICE_TOKEN=generate-a-long-random-value
 AUTH_JWT_SECRET=generate-a-long-random-value
 APP_BASE_URL=https://YOUR-APP.vercel.app
 CORS_ORIGINS=["https://YOUR-APP.vercel.app"]
@@ -164,7 +161,7 @@ it, lock the parts that are right, and re-run the rest.
 
 - It replays a saved snapshot of a customer's warehouse (names, types, counts; never rows), so no
   live Snowflake is needed. Claude runs live.
-- There is no n8n, no weekly run and no cards here. This is only the onboarding flow.
+- There is no scheduler, no weekly run and no cards here. This is only the onboarding flow.
 - Stack: Neon (Postgres), Render (API), Vercel (web app), the Anthropic API.
 
 See [DEPLOY.md](DEPLOY.md) to set it up. The code is generated from the main Formada repo by
@@ -233,7 +230,10 @@ Mapping, Org and Metrics. In the lab any step can be opened in any order.
 
 
 def copy_tree(src: Path, dst: Path) -> None:
-    shutil.copytree(src, dst, ignore=IGNORE, dirs_exist_ok=True)
+    """Replace the copy, so a file deleted in the main repo is deleted here too."""
+    if dst.exists():
+        shutil.rmtree(dst)
+    shutil.copytree(src, dst, ignore=IGNORE)
 
 
 def main() -> None:

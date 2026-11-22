@@ -434,53 +434,7 @@
       "remeasure": "Remeasure",
       "digest": "Weekly digest",
       "manual": "Manual run"
-    },
-    "wf1": {
-      "name": "Weekly run",
-      "when": "Monday 05:00, tenant time",
-      "what": "Every metric back to back, then per role: detect signals, build the prompt, write cards, validate and store. Ends with WF6."
-    },
-    "wf1a": {
-      "name": "Role pipeline",
-      "when": "Called by WF1 and WF2, once per role",
-      "what": "detect -> prompt -> LLM -> ingest. A failed role is marked and the run moves on."
-    },
-    "wf2": {
-      "name": "Daily check",
-      "when": "Daily 05:00 except Monday",
-      "what": "daily_check metrics and daily-cadence roles; a threshold breach runs that role's pipeline."
-    },
-    "wf3": {
-      "name": "Remeasure",
-      "when": "Daily 06:00",
-      "what": "Midpoint and end measurements of initiatives, written as outcomes; then WF6."
-    },
-    "wf4": {
-      "name": "Weekly digest",
-      "when": "Monday 08:00",
-      "what": "Emails each person their new cards and value captured."
-    },
-    "wf5": {
-      "name": "Feedback compiler",
-      "when": "On each feedback, and nightly 02:00",
-      "what": "Proposes downweight and forbid rules from repeated feedback, for review."
-    },
-    "wf6": {
-      "name": "Roll-up",
-      "when": "End of WF1, WF2 and WF3",
-      "what": "Refreshes open cards and value captured per role and team."
-    },
-    "wf7": {
-      "name": "Health",
-      "when": "Hourly",
-      "what": "Stale runs, credit use against the cap, LLM log retention, warehouse login."
-    },
-    "wf0": {
-      "name": "Error handler",
-      "when": "When a workflow crashes",
-      "what": "Marks that execution's runs as failed."
-    },
-    "note": "n8n schedules and sequences these calls; every decision is made by the API. Editor: http://localhost:5678 (local only)."
+    }
   },
   "people": {
     "title": "People ({count})",

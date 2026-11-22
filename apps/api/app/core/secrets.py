@@ -1,7 +1,7 @@
 """Secrets vault abstraction. Local: env or JSON file. Production: cloud KMS-backed manager (later).
 
 A secret_ref is an opaque name stored in Postgres (e.g. "tenant/<id>/snowflake_key");
-the key material itself never touches Postgres, logs, n8n or the browser.
+the key material itself never touches Postgres, logs or the browser.
 """
 
 import json

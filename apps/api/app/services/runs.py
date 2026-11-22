@@ -1,4 +1,4 @@
-"""Run lifecycle for n8n: due tenants, create (with the per-tenant lock), steps, finish, fail."""
+"""Run lifecycle: due tenants, create (with the per-tenant lock), steps, finish, fail."""
 
 import uuid
 from collections.abc import AsyncIterator
@@ -20,7 +20,7 @@ DAILY_PLAN_STEP = "daily_plan"  # one per role a daily check decided to run
 
 
 class RunNotRunning(Exception):
-    """A step arrived for a run that already finished or failed; the router answers skipped."""
+    """A step arrived for a run that already finished or failed; the runner treats it as skipped."""
 
 
 async def _due_roles(s: Any, run_type: str) -> list[Any]:
@@ -116,7 +116,7 @@ async def step(
     tenant_id: uuid.UUID, run_id: uuid.UUID, role_node_id: uuid.UUID | None, name: str
 ) -> AsyncIterator[dict[str, Any]]:
     """Record a step: running on entry, then the status the body puts in the yielded dict.
-    An exception leaves it 'running' (n8n retries; after the last try it calls steps/fail)."""
+    An exception leaves it 'running' (the scheduler retries, then marks it failed)."""
     bind_request_context(tenant_id=str(tenant_id), run_id=str(run_id))
     async with tenant_tx("service", tenant_id) as s:
         if await run_repo.get_running(s, run_id) is None:
@@ -178,20 +178,3 @@ async def fail_run(tenant_id: uuid.UUID, run_id: uuid.UUID, error: str) -> dict[
         run.error = error[:4000]
     log.error("run.failed", error=error[:300])
     return {"status": "ok", "run_status": "failed"}
-
-
-async def fail_by_execution(execution_id: str, error: str) -> dict[str, Any]:
-    """For the n8n error workflow, which knows only the failed execution id."""
-    async with global_tx("service") as s:
-        tenant_ids = list(await s.scalars(select(Tenant.id)))
-    failed = []
-    for tenant_id in tenant_ids:
-        async with tenant_tx("service", tenant_id) as s:
-            runs = await s.scalars(
-                select(Run).where(Run.n8n_execution_id == execution_id, Run.status == "running")
-            )
-            for run in runs:
-                run.status, run.ended_at, run.error = "failed", datetime.now(UTC), error[:4000]
-                failed.append(str(run.id))
-    log.error("run.failed_by_execution", execution_id=execution_id, runs=failed, error=error[:300])
-    return {"status": "ok" if failed else "skipped", "runs": failed}

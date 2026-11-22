@@ -31,7 +31,7 @@ export default async function RunPage({ params }: { params: Promise<{ id: string
         </h1>
         <p className="text-sm text-muted-foreground">
           Data through {r.period_end} · {time(r.started_at)} → {time(r.ended_at)} · warehouse {r.query_seconds.toFixed(2)} s ·{" "}
-          {r.llm_tokens.toLocaleString("en-CA")} AI tokens (≈ US${cost.toFixed(4)}) · n8n execution {r.n8n_execution_id ?? "–"}
+          {r.llm_tokens.toLocaleString("en-CA")} AI tokens (≈ US${cost.toFixed(4)}) · started {r.n8n_execution_id && r.n8n_execution_id !== "scheduled" ? "by hand" : "on schedule"}
         </p>
         {r.error && <p className="rounded-lg bg-brand/10 px-3 py-2 text-sm text-brand">{r.error}</p>}
       </header>

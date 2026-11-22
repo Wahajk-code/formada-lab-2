@@ -434,53 +434,7 @@
       "remeasure": "Remesure",
       "digest": "Résumé hebdomadaire",
       "manual": "Manuelle"
-    },
-    "wf1": {
-      "name": "Exécution hebdomadaire",
-      "when": "Lundi 5 h, heure locale",
-      "what": "Tous les indicateurs à la suite, puis par rôle : détecter, préparer l’invite, rédiger, valider, enregistrer. Termine par WF6."
-    },
-    "wf1a": {
-      "name": "Pipeline de rôle",
-      "when": "Appelé par WF1 et WF2, une fois par rôle",
-      "what": "détecter -> invite -> IA -> enregistrer. Un rôle en échec est marqué et l’exécution continue."
-    },
-    "wf2": {
-      "name": "Vérification quotidienne",
-      "when": "Chaque jour à 5 h sauf le lundi",
-      "what": "Indicateurs quotidiens et rôles quotidiens ; un dépassement de seuil lance le pipeline du rôle."
-    },
-    "wf3": {
-      "name": "Remesure",
-      "when": "Chaque jour à 6 h",
-      "what": "Mesures de mi-parcours et de fin des initiatives, enregistrées comme résultats ; puis WF6."
-    },
-    "wf4": {
-      "name": "Résumé hebdomadaire",
-      "when": "Lundi 8 h",
-      "what": "Envoie à chacun ses nouvelles cartes et la valeur captée."
-    },
-    "wf5": {
-      "name": "Compilateur de rétroaction",
-      "when": "À chaque rétroaction, et chaque nuit à 2 h",
-      "what": "Propose des règles de pondération et d’interdiction à partir de la rétroaction répétée."
-    },
-    "wf6": {
-      "name": "Cumul",
-      "when": "Fin de WF1, WF2 et WF3",
-      "what": "Met à jour les cartes ouvertes et la valeur captée par rôle et équipe."
-    },
-    "wf7": {
-      "name": "Santé",
-      "when": "Chaque heure",
-      "what": "Exécutions bloquées, crédits par rapport au plafond, rétention des journaux d’IA, connexion à l’entrepôt."
-    },
-    "wf0": {
-      "name": "Gestion d’erreur",
-      "when": "Quand un flux plante",
-      "what": "Marque en échec les exécutions concernées."
-    },
-    "note": "n8n planifie et enchaîne ces appels ; chaque décision est prise par l’API. Éditeur : http://localhost:5678 (local seulement)."
+    }
   },
   "people": {
     "title": "Personnes ({count})",

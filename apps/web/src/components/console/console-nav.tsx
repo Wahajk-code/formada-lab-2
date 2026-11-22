@@ -1,6 +1,6 @@
 "use client";
 
-import { Bot, Building2, FlaskConical, ChevronsUpDown, LayoutGrid, ListChecks, Scale, Search, SlidersHorizontal, Users } from "lucide-react";
+import { Bot, Building2, FlaskConical, ChevronsUpDown, LayoutGrid, ListChecks, Scale, Search, SlidersHorizontal, Users, Workflow } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 const LINKS: { href: string; label: string; icon: typeof LayoutGrid; exact?: boolean; match?: RegExp }[] = [
   { href: "/console", label: "Overview", icon: LayoutGrid, exact: true, match: /^\/console\/workspaces\/[^/]+(\/runs\/.*)?$/ },
   { href: "/console/onboarding", label: "Onboarding", icon: ListChecks, match: /^\/console\/workspaces\/[^/]+\/onboarding/ },
+  { href: "/console/workflows", label: "Workflows", icon: Workflow },
   { href: "/console/config", label: "Config & rules", icon: SlidersHorizontal },
   { href: "/console/agents", label: "AI agents", icon: Bot },
   { href: "/console/ai-lab", label: "AI lab", icon: FlaskConical },

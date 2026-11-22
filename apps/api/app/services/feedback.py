@@ -18,7 +18,6 @@ from app.core.logging import get_logger
 from app.domain import feedback as fb_rules
 from app.domain import org as org_rules
 from app.domain import outcomes as out_rules
-from app.integrations import n8n
 from app.models import (
     AuditLog,
     Feedback,
@@ -31,6 +30,7 @@ from app.models import (
 )
 from app.repositories import org as org_repo
 from app.services import agents as agent_service
+from app.services import scheduler
 
 log = get_logger(__name__)
 
@@ -104,7 +104,7 @@ async def give_feedback(
         await s.flush()
         s.add(_audit(principal, f"card.{type_}", "insight_card", card.id, reason=reason))
         feedback_id = fb.id
-    await n8n.feedback_given(principal.tenant_id, feedback_id)  # WF5, best effort
+    scheduler.on_feedback(principal.tenant_id, feedback_id)  # compile it now, best effort
     return {"status": type_, "card_id": str(card_id), "feedback_id": str(feedback_id)}
 
 

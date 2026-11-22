@@ -31,8 +31,6 @@ services:
         sync: false
       - key: DATABASE_OWNER_URL
         sync: false
-      - key: INTERNAL_SERVICE_TOKEN
-        generateValue: true
       - key: AUTH_JWT_SECRET
         generateValue: true
       - key: APP_BASE_URL
