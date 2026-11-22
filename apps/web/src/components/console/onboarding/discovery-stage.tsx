@@ -22,7 +22,7 @@ import { contextOf, idsToSend, missingNote, questionWithMentions } from "@/lib/m
 import { cardId, cardList, groupIndex, type CardSuggestion } from "@/lib/discovery-cards";
 import { EngineerChat } from "@/components/console/onboarding/engineer-chat";
 import { cn } from "@/lib/utils";
-import { CoverageRow, FullGuide, IssueRow, QuestionRow } from "@/components/console/onboarding/full-guide";
+import { CoverageRow, FullGuide, IssueRow, QuestionRow, ViewJoins } from "@/components/console/onboarding/full-guide";
 import { fmt, humanName, makeNamer, Section, Status, Sub } from "@/components/console/onboarding/review-kit";
 import { Icon, type IconName } from "@/components/ui/icon";
 import type { AssistantTurn } from "@/lib/client-api";
@@ -584,8 +584,9 @@ export function DiscoveryStage({
 
         {section === "relationships" && (
           <div className="rv">
+            <ViewJoins guide={guide} cards={cards} />
             <SchemaDiagram tables={tables} />
-            <Section icon="network" title="How the tables join" point="Mapping uses these joins to add names, locations and dates to every row. A wrong join gives wrong numbers, so check the low ones first.">
+            <Section icon="network" title="How the directly-read tables join" point="Tables we read straight from the warehouse, not through a view. Mapping uses these joins to add names, locations and dates to every row. A wrong join gives wrong numbers, so check the low ones first.">
               {joinCards.length ? (
                 (out.tables as any[])
                   .filter((t) => (t.joins ?? []).length)
@@ -631,7 +632,7 @@ export function DiscoveryStage({
                     </div>
                   ))
               ) : (
-                <p className="stage-helper">No joins were found between these tables.</p>
+                <p className="stage-helper">No joins between directly-read tables.</p>
               )}
               <AddJoin ctx={cards} disabled={busy} />
             </Section>

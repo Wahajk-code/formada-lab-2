@@ -136,6 +136,75 @@ export function QuestionRow({ q, ctx, action }: { q: any; ctx?: CardCtx; action?
   );
 }
 
+// ---- joins declared in the customer's views -----------------------------------------------------
+
+type ViewLink = { view: string; from: string; keys: string; to: string; ref: string };
+
+/** The joins the customer's own views declare, each one once. */
+export function viewLinks(views: NonNullable<OnboardingGuide["semantic_views"]>): ViewLink[] {
+  const seen = new Set<string>();
+  return views
+    .flatMap((v) =>
+      v.relationships.flatMap((raw) => {
+        const m = LINK.exec(raw);
+        return m ? [{ view: v.view, from: m[1], keys: clean(m[2]), to: m[3], ref: clean(m[4]) }] : [];
+      }),
+    )
+    .filter((l) => {
+      const k = `${l.from}|${l.keys}|${l.to}|${l.ref}`;
+      return seen.has(k) ? false : (seen.add(k), true);
+    });
+}
+
+/**
+ * The Relationships tab, for the tables that arrive through the customer's views (ADR 0033): most
+ * of sales, stock and purchasing. Without this the tab only showed tables read directly.
+ */
+export function ViewJoins({ guide, cards }: { guide: OnboardingGuide | null; cards?: CardCtx }) {
+  const views = guide?.semantic_views ?? [];
+  const links = viewLinks(views);
+  if (!links.length) return null;
+  const nameOf = makeNamer(views);
+  const groups = AREAS.map((a) => ({ a, rows: links.filter((l) => areaOf(l.from) === a.key) })).filter((g) => g.rows.length);
+  return (
+    <Section
+      id="rv-view-joins"
+      icon="network"
+      title="How the customer's views join"
+      point="Sales, stock and purchasing reach us through the customer's own views, so these are the joins our numbers rest on. Read each line as: this table finds its match in that table, using this field."
+    >
+      {groups.map(({ a, rows }) => (
+        <div key={a.key} className="rv-block card-hover">
+          <Sub title={a.label} note={fmt.plural(rows.length, "join")} />
+          <div className="stage-table-scroll">
+            <table className="stage-table rv-compact">
+              <thead>
+                <tr>
+                  <th scope="col">This table</th>
+                  <th scope="col">Finds its match in</th>
+                  <th scope="col">Using</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((l) => (
+                  <tr key={`${l.from}${l.keys}${l.to}`}>
+                    <td>{nameOf(l.from)}</td>
+                    <td>{nameOf(l.to)}</td>
+                    <td>
+                      <code>{l.keys === l.ref ? l.keys : `${l.keys} = ${l.ref}`}</code>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <FactBar id={`f:links:${a.key}`} ctx={cards} />
+        </div>
+      ))}
+    </Section>
+  );
+}
+
 // ---- the guide ----------------------------------------------------------------------------------
 
 export function FullGuide({ out, guide, cards, onResolve }: { out: any; guide: OnboardingGuide | null; cards?: CardCtx; onResolve?: () => void }) {
@@ -148,20 +217,7 @@ export function FullGuide({ out, guide, cards, onResolve }: { out: any; guide: O
   const issues: any[] = [...(out.quality_issues ?? [])].sort((a, b) => "hml".indexOf(a.severity[0]) - "hml".indexOf(b.severity[0]));
   const questions: any[] = out.questions ?? [];
 
-  const links = useMemo(() => {
-    const seen = new Set<string>();
-    return views
-      .flatMap((v) =>
-        v.relationships.flatMap((raw) => {
-          const m = LINK.exec(raw);
-          return m ? [{ view: v.view, from: m[1], keys: clean(m[2]), to: m[3], ref: clean(m[4]) }] : [];
-        }),
-      )
-      .filter((l) => {
-        const k = `${l.from}|${l.keys}|${l.to}|${l.ref}`;
-        return seen.has(k) ? false : (seen.add(k), true);
-      });
-  }, [views]);
+  const links = useMemo(() => viewLinks(views), [views]);
   const semTables = useMemo(() => {
     const seen = new Set<string>();
     return views
@@ -284,29 +340,28 @@ export function FullGuide({ out, guide, cards, onResolve }: { out: any; guide: O
           id="rv-history"
           icon="calendar"
           title="The main table over time"
-          point="Shows which dates and rows we can trust for trends. Hover the line for a date and its row count."
+          point="Can we trust this table's history for trends? Hover the line to see a date and its row count."
           tools={<FactBar id="f:history" ctx={cards} />}
         >
-          {mainTable && <Name technical={mainTable} human={mainHuman} sub={<small className="rv-muted">Dated by {time.date_column}</small>} />}
+          {mainTable && <Name technical={mainTable} human={mainHuman} />}
           <DataTimeline points={time.dates} breaks={time.breaks} />
           <Lines
             rows={[
               ...time.breaks.map(
                 (b): [string, React.ReactNode] => [
-                  "Row drop",
+                  "Sudden drop",
                   <>
-                    {fmt.date(b.to)}: {b.rows?.map(fmt.exact).join(" → ")} rows
-                    {b.rows && b.rows[0] ? <span className="rv-muted"> ({Math.round((100 * (b.rows[1] - b.rows[0])) / b.rows[0])}%)</span> : null}
+                    {fmt.date(b.to)}: rows fell {b.rows && b.rows[0] ? `${Math.round((100 * (b.rows[0] - b.rows[1])) / b.rows[0])}%` : "sharply"}
+                    {b.rows && <span className="rv-muted"> ({b.rows.map(fmt.exact).join(" to ")})</span>}
                   </>,
                 ],
               ),
               [
-                "Filled late",
+                "Empty at first",
                 time.filled_late.length ? (
                   <>
-                    {fmt.plural(time.filled_late.length, "field")} empty until {fmt.date(time.filled_late[0].first_date)}:{" "}
-                    <code>{time.filled_late.slice(0, 3).map((f) => f.column).join(", ")}</code>
-                    {time.filled_late.length > 3 && ` and ${time.filled_late.length - 3} more`}
+                    {fmt.plural(time.filled_late.length, "field")} had no data until {fmt.date(time.filled_late[0].first_date)}
+                    <span className="rv-muted"> (for example {time.filled_late.slice(0, 2).map((f) => humanName(f.column).toLowerCase()).join(", ")})</span>
                   </>
                 ) : null,
               ],
@@ -314,8 +369,8 @@ export function FullGuide({ out, guide, cards, onResolve }: { out: any; guide: O
           />
           {rowSource && (
             <div className="rv-block card-hover">
-              <Sub title="Where the rows come from" note={<code>{rowSource.column}</code>} />
-              <SplitBar values={rowSource.values.map((v) => ({ value: String(v.value ?? ""), rows: v.rows }))} label={rowSource.column} />
+              <Sub title="Where the rows come from" />
+              <SplitBar values={rowSource.values.map((v) => ({ value: humanName(String(v.value ?? "")), rows: v.rows }))} label="Row source" />
               <FactBar id={`f:rows:${rowSource.column}`} ctx={cards} />
             </div>
           )}
