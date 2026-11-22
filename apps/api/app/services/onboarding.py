@@ -2142,6 +2142,8 @@ async def guide(tenant_id: uuid.UUID) -> dict[str, Any]:
             for c in profile.get("categories", [])
         ],
         "key_overlaps": profile.get("key_overlaps", []),
+        # The joins code tested on the data: share of values that find a match.
+        "tested_joins": profile.get("joins", [])[:60],
         "archetypes": await _archetypes(),
         "role_archetypes": await _role_archetypes(),
         "rule_settings": [

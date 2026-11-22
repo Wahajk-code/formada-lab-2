@@ -633,7 +633,7 @@ class AssistantIn(BaseModel):
     step: Literal["connect", "discovery", "mapping", "org", "metrics", "rules", "trial"]
     question: str = Field(max_length=2000)
     history: list[dict[str, Any]] = Field(default=[], max_length=20)
-    cards: list[str] = Field(default=[], max_length=8)  # discovery cards mentioned with @
+    cards: list[str] = Field(default=[], max_length=8)  # cards, facts (f:) or mapping links (m:)
 
 
 class MetricEditIn(BaseModel):

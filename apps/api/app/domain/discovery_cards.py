@@ -197,16 +197,36 @@ def view(kind: str, item: dict[str, Any], owner: str = "") -> dict[str, Any]:
 # ---- groups: a named set of cards (a heading's whole block) -----------------------------------
 
 
-def _issue_areas(tables: list[str], issue: dict[str, Any]) -> list[str]:
-    """The areas an issue touches, from the tables of the columns it names."""
+def issue_tables(out: dict[str, Any], issue: dict[str, Any]) -> list[str]:
+    """The tables an issue is about: from its TABLE.COLUMN names; for bare column names, the
+    tables its text names; otherwise the only fact table. Mirrored on the web side."""
+    tables = [str(t.get("table", "")) for t in out.get("tables", [])]
     names = {t.upper(): t for t in tables} | {_short(t).upper(): t for t in tables}
     hit: list[str] = []
     for col in issue.get("columns") or []:
+        if "." not in str(col):
+            continue
         table = str(col).rsplit(".", 1)[0]
         found = names.get(table.upper()) or names.get(_short(table).upper())
-        if found and area_of(found) not in hit:
-            hit.append(area_of(found))
-    return hit
+        if found and found not in hit:
+            hit.append(found)
+    if hit:
+        return hit
+    text = " ".join(str(issue.get(k, "")) for k in ("title", "evidence", "impact")).upper()
+    hit = [
+        t
+        for t in tables
+        if re.search(rf"(?<![A-Z0-9_]){re.escape(_short(t).upper())}(?![A-Z0-9_])", text)
+    ]
+    if hit:
+        return hit
+    facts = [str(t.get("table", "")) for t in out.get("tables", []) if t.get("kind") == "fact"]
+    return facts if len(facts) == 1 else []
+
+
+def _issue_areas(out: dict[str, Any], issue: dict[str, Any]) -> list[str]:
+    """The areas an issue touches, from the tables it is about."""
+    return list(dict.fromkeys(area_of(t) for t in issue_tables(out, issue)))
 
 
 def groups(out: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -232,7 +252,7 @@ def groups(out: dict[str, Any]) -> dict[str, dict[str, Any]]:
             for c in out.get("coverage") or []
             if c.get("family") in AREA_FAMILIES[key]
         ]
-        iss_items = [q for q in out.get("quality_issues") or [] if key in _issue_areas(tables, q)]
+        iss_items = [q for q in out.get("quality_issues") or [] if key in _issue_areas(out, q)]
         iss = [card_id("issue", q) for q in iss_items]
         placed |= set(iss)
         add(f"g:tables:{key}", f"{name} tables", tcards)
@@ -562,3 +582,58 @@ def filter_ai_changes(
             continue
         ok.append(ch)
     return ok, refused
+
+
+# ---- facts: what the scan measured (read-only, can be mentioned in the chat) --------------------
+
+FACT_PREFIX = "f:"
+_LINK = re.compile(r"^(\S+) \(")
+
+
+def is_fact(cid: str) -> bool:
+    return str(cid).startswith(FACT_PREFIX)
+
+
+def fact(profile: dict[str, Any], fid: str) -> dict[str, Any] | None:
+    """The measured data behind a fact id, for the chat. None when the id names nothing.
+
+    f:table:<T>      a table read directly: rows and every field with type, fill and distinct count
+    f:vtable:<T>     a table in the customer's semantic views: fields, measures and formulas
+    f:history        the main table over time: rows per date, cadence, drops, fields filled late
+    f:rows:<COLUMN>  how the rows split by a category column (for example AUDIT_SOURCE)
+    f:links:<area>   the links the customer's views declare from that area's tables
+    f:overlap        whether item codes match between areas
+    """
+    kind, _, name = str(fid)[len(FACT_PREFIX) :].partition(":")
+    if kind == "table":
+        for t in profile.get("tables", []):
+            if _short(t.get("table", "")).upper() == _short(name).upper():
+                return {"fact": fid, "table": t.get("table"), "rows": t.get("rows"),
+                        "columns": t.get("columns", [])[:80]}  # fmt: skip
+        return None
+    if kind == "vtable":
+        for v in profile.get("semantic_views", []):
+            for t in v.get("tables", []):
+                if str(t.get("table", "")).upper() == name.upper():
+                    return {"fact": fid, "view": v.get("view"), **t}
+        return None
+    if kind == "history":
+        tp = profile.get("time_profile")
+        return {"fact": fid, **tp} if tp else None
+    if kind == "rows":
+        for c in profile.get("categories", []):
+            if str(c.get("column", "")).upper() == name.upper():
+                return {"fact": fid, **c}
+        return None
+    if kind == "links":
+        found = [
+            {"view": v.get("view"), "link": r}
+            for v in profile.get("semantic_views", [])
+            for r in v.get("relationships", [])
+            if (m := _LINK.match(str(r))) and area_of(m.group(1)) == name
+        ]
+        return {"fact": fid, "area": name, "links": found} if found else None
+    if kind == "overlap":
+        found_overlaps = profile.get("key_overlaps") or []
+        return {"fact": fid, "key_overlaps": found_overlaps} if found_overlaps else None
+    return None

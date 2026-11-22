@@ -51,7 +51,7 @@ STYLE = [
     "links (the mapping), standard_model and ai_cost (what each step cost, and what runs cost "
     "after go-live). Look there before saying something is missing.",
     "State only decisions and handling that the context states. If you suggest something the "
-    "context does not say, call it \"my suggestion\" so it is not mistaken for the guide.",
+    'context does not say, call it "my suggestion" so it is not mistaken for the guide.',
     "If the context really does not contain the answer, say so in one sentence and say who can "
     "answer.",
 ]
@@ -462,6 +462,28 @@ async def _call(
     return out
 
 
+def mapping_mentions(links: list[dict[str, Any]], ids: list[str]) -> list[dict[str, Any]]:
+    """The mapping links the team mentioned: `m:<shape>` is a whole link, `m:<shape>.<field>` one
+    field of it (with the link's filters and questions, so the answer has its context)."""
+    found: list[dict[str, Any]] = []
+    by_shape = {str(a.get("standard_shape")): a for a in links}
+    for mid in ids:
+        shape, _, field = mid[2:].partition(".")
+        link = by_shape.get(shape)
+        if link is None:
+            continue
+        if not field:
+            found.append({"card": mid, **link})
+            continue
+        match = next((f for f in link.get("fields", []) if f.get("field") == field), None)
+        if match:
+            found.append(
+                {"card": mid, "standard_shape": shape, "field": match,
+                 "filters": link.get("filters"), "questions": link.get("questions")}
+            )  # fmt: skip
+    return found
+
+
 async def team_ask(
     tenant_id: uuid.UUID, step: str, question: str, history: list[Turn],
     cards: list[str] | None = None,
@@ -470,8 +492,13 @@ async def team_ask(
     if cards:
         from app.services import onboarding_items
 
-        # Cards the team mentioned with @: the chat answers about exactly these.
-        ctx["mentioned_cards"] = await onboarding_items.card_context(tenant_id, cards)
+        # Cards the team mentioned with @: the chat answers about exactly these. Mapping links
+        # (m:) come from the mapping already in the context; the rest from discovery.
+        found = mapping_mentions(ctx.get("links") or [], [c for c in cards if c.startswith("m:")])
+        rest = [c for c in cards if not c.startswith("m:")]
+        if rest:
+            found += await onboarding_items.card_context(tenant_id, rest)
+        ctx["mentioned_cards"] = found
     out = await _call(tenant_id, "team", step, question, ctx, history)
     return {"answer": out.answer, **_check(out, ctx)}
 

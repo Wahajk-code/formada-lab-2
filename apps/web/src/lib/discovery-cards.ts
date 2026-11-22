@@ -110,19 +110,41 @@ export function areaOf(table: string): AreaKey {
 
 export type Group = { label: string; members: string[] };
 
-function issueAreas(tables: string[], issue: any): AreaKey[] {
+/** The tables an issue is about: from its TABLE.COLUMN names; for bare column names, the tables
+ * its text names; otherwise the only fact table. Mirrors `issue_tables` in the API. */
+export function issueTables(out: any, issue: any): string[] {
+  const tables: string[] = (out.tables ?? []).map((t: any) => String(t.table ?? ""));
   const names = new Map<string, string>();
   for (const t of tables) {
     names.set(t.toUpperCase(), t);
     names.set(short(t).toUpperCase(), t);
   }
-  const hit: AreaKey[] = [];
+  const hit: string[] = [];
   for (const col of issue.columns ?? []) {
+    if (!String(col).includes(".")) continue;
     const table = String(col).split(".").slice(0, -1).join(".");
     const found = names.get(table.toUpperCase()) ?? names.get(short(table).toUpperCase());
-    if (found && !hit.includes(areaOf(found))) hit.push(areaOf(found));
+    if (found && !hit.includes(found)) hit.push(found);
   }
-  return hit;
+  if (hit.length) return hit;
+  const text = ["title", "evidence", "impact"].map((k) => String(issue[k] ?? "")).join(" ").toUpperCase();
+  // A whole word: the name is not part of a longer name (letters, digits or underscores around it).
+  const word = (name: string) => {
+    for (let i = text.indexOf(name); i >= 0; i = text.indexOf(name, i + 1)) {
+      const before = text[i - 1] ?? " ";
+      const after = text[i + name.length] ?? " ";
+      if (!/[A-Z0-9_]/.test(before) && !/[A-Z0-9_]/.test(after)) return true;
+    }
+    return false;
+  };
+  const named = tables.filter((t) => word(short(t).toUpperCase()));
+  if (named.length) return named;
+  const facts = (out.tables ?? []).filter((t: any) => t.kind === "fact").map((t: any) => String(t.table ?? ""));
+  return facts.length === 1 ? facts : [];
+}
+
+function issueAreas(out: any, issue: any): AreaKey[] {
+  return [...new Set(issueTables(out, issue).map(areaOf))];
 }
 
 /** Every named block of the answer: the group id is what the chat and the API use. */
@@ -143,7 +165,7 @@ export function groupIndex(out: any): Record<string, Group> {
     const name = AREA_LABEL[key];
     const t = tables.filter((x) => areaOf(x) === key).map((x) => cardId("table", { table: x }));
     const cov = (out.coverage ?? []).filter((c: any) => AREA_FAMILIES[key].includes(c.family)).map((c: any) => cardId("coverage", c));
-    const iss = issues.filter((q) => issueAreas(tables, q).includes(key)).map((q) => cardId("issue", q));
+    const iss = issues.filter((q) => issueAreas(out, q).includes(key)).map((q) => cardId("issue", q));
     iss.forEach((i) => placed.add(i));
     add(`g:tables:${key}`, `${name} tables`, t);
     add(`g:coverage:${key}`, `${name} coverage`, cov);

@@ -719,12 +719,14 @@ async def card_context(tenant_id: uuid.UUID, ids: list[str]) -> list[dict[str, A
     if row is None or not row.output:
         return []
     out, profile = row.output, (row.input or {}).get("profile", {})
+    # Facts are what the scan measured: read-only, given to the chat as they are.
+    facts = [f for i in ids if dc.is_fact(i) and (f := dc.fact(profile, i))]
     try:
-        ids = dc.expand(out, ids)
+        ids = dc.expand(out, [i for i in ids if not dc.is_fact(i)])
     except ValueError as exc:
         raise Invalid(str(exc)) from exc
     cards = dc.index(out)
-    found: list[dict[str, Any]] = []
+    found: list[dict[str, Any]] = list(facts)
     for cid in ids[: dc.MAX_EXPANDED]:
         if cid not in cards:
             continue
@@ -754,6 +756,11 @@ async def suggest_card_changes(
     if len(instruction) > INSTRUCTION_MAX:
         raise Invalid(f"keep it under {INSTRUCTION_MAX} characters")
     ids = list(dict.fromkeys(ids))
+    if ids and all(dc.is_fact(i) for i in ids):
+        raise Invalid(
+            "those are measured facts and cannot change: ask a question about them instead"
+        )
+    ids = [i for i in ids if not dc.is_fact(i)]  # facts never change
     if not ids:
         raise Invalid("mention at least one card with @")
     if len(ids) > dc.MAX_MENTIONS:

@@ -1,134 +1,151 @@
 "use client";
 /* eslint-disable @typescript-eslint/no-explicit-any -- agent outputs are schema-checked JSON */
 
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useMemo } from "react";
 
 import { CardBar, CardEditor, GroupBar, type CardCtx } from "@/components/console/onboarding/card-tools";
+import { DataTimeline } from "@/components/console/onboarding/data-timeline";
+import {
+  COVERAGE,
+  FactBar,
+  fmt,
+  Fold,
+  humanDates,
+  humanName,
+  Lines,
+  makeNamer,
+  Name,
+  SearchList,
+  Section,
+  Severity,
+  shortName,
+  SplitBar,
+  Status,
+  Sub,
+} from "@/components/console/onboarding/review-kit";
 import { Icon } from "@/components/ui/icon";
-import { areaOf, cardId, OVERVIEW } from "@/lib/discovery-cards";
+import { areaOf, cardId, issueTables, OVERVIEW, type AreaKey, type CardKind } from "@/lib/discovery-cards";
 import type { OnboardingGuide } from "@/lib/console-api";
 import { cn } from "@/lib/utils";
 
 /**
- * The data guide, in the reference-manual format reviewed in the artifact (variation A):
- * an overview, then one section per business area with Tables, How the tables connect,
- * Measures and Fields; inventory adds which rows are real and the snapshot history;
- * then cross-checks between areas and the questions for the customer.
+ * The data guide (docs/review-format.md). Answer first: what the scan found, which areas are
+ * ready, how the main table behaves over time; then one card per area with what we have, its
+ * tables and what to watch for, the technical detail folded; then the customer's own views.
+ * AI findings can be edited, locked and mentioned; measured facts can be mentioned.
  */
 
-const int = new Intl.NumberFormat("en-CA");
-const cap = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) : s);
-const words = (s: string) => s.replace(/_/g, " ");
-const short = (t: string) => t.split(".").pop() ?? t;
-const plain = (s: string) => cap(words(s.toLowerCase()));
-
-type AreaKey = "sales" | "inventory" | "purchasing" | "shared";
-const AREAS: { key: AreaKey; label: string; blurb: string; families: string[] }[] = [
-  { key: "sales", label: "Sales", blurb: "Orders, invoices, cash sales, customers, returns and forecasts.", families: ["sales", "returns", "customers"] },
-  { key: "inventory", label: "Inventory", blurb: "Stock on hand by item and location, and stock moving between locations.", families: ["inventory", "transfers"] },
-  { key: "purchasing", label: "Purchasing", blurb: "Purchase orders, vendors and what has been received.", families: ["purchase_orders", "receipts", "vendors"] },
-  { key: "shared", label: "Shared lookups", blurb: "Calendar, locations and product groups every area uses.", families: ["calendar"] },
+const AREAS: { key: AreaKey; label: string; use: string; core: string; families: string[] }[] = [
+  { key: "sales", label: "Sales", use: "Feeds sales metrics: revenue, units, discounts, returns and top sellers.", core: "sales", families: ["sales", "returns", "customers"] },
+  { key: "inventory", label: "Inventory", use: "Feeds stock metrics: on hand, weeks of cover, stock-outs and overstock.", core: "inventory", families: ["inventory", "transfers"] },
+  { key: "purchasing", label: "Purchasing", use: "Feeds purchasing metrics: open orders, late deliveries and supplier performance.", core: "purchase_orders", families: ["purchase_orders", "receipts", "vendors"] },
+  { key: "shared", label: "Shared lookups", use: "Names and groups every area uses: calendar, locations and product groups.", core: "calendar", families: ["calendar"] },
 ];
+const FAMILY: Record<string, string> = { purchase_orders: "Purchase orders" };
+const familyName = (f: string) => FAMILY[f] ?? humanName(f);
 const LINK = /^(\S+) \(\s*\[?\s*([\s\S]*?)\s*\]?\s*\) -> (\S+) \(\s*\[?\s*([\s\S]*?)\s*\]?\s*\)$/;
 const clean = (s: string) => s.replace(/["\s]+/g, " ").trim();
+const USE_FOR: Record<string, { tone: "ready" | "info" | "missing"; word: string }> = {
+  map_from_view: { tone: "ready", word: "Map from this view" },
+  map_from_tables: { tone: "info", word: "Map from the tables instead" },
+  reference_only: { tone: "missing", word: "Reference only" },
+};
+/** "One row is the stock of ... 3,428,183 rows." -> "the stock of ..." */
+const grainText = (g: string) =>
+  String(g ?? "")
+    .replace(/^(one( row)?( is| per)?\s+)/i, "")
+    .replace(/\s*[\d,.]+\s+rows\.?\s*$/i, "")
+    .replace(/\.$/, "");
+/** "6 tables read directly", "11 tables, only through a view", "1 read directly, 1 through a view". */
+const tableCount = (direct: number, view: number) =>
+  !view ? fmt.plural(direct, "table") + " read directly" : !direct ? `${fmt.plural(view, "table")}, only through a view` : `${direct} read directly, ${view} through a view`;
+const cap = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) : s);
+/** "The table contains records of shipped sales lines, ..." -> "Shipped sales lines, ..." (first sentence). */
+const holds = (comment?: string | null) =>
+  cap(
+    firstSentence(
+      String(comment ?? "")
+        .replace(/^this (table|view)\s+/i, "")
+        .replace(/^the (table|view)\s+(contains|stores|holds|captures|includes)\s+((records|information|data|details)\s+(of|on|about|for)\s+)?/i, "")
+        .replace(/^(contains|stores|holds)\s+/i, ""),
+      110,
+    ),
+  );
+const firstSentence = (s: string, n = 120) => {
+  const one = String(s ?? "").split(/(?<=\.)\s/)[0] ?? "";
+  return one.length > n ? `${one.slice(0, n - 1).trimEnd()}…` : one;
+};
 
-function Chip({ tone = "neutral", children }: { tone?: "neutral" | "positive" | "attention" | "accent"; children: React.ReactNode }) {
-  return <span className={cn("stage-badge", tone !== "neutral" && tone)}>{children}</span>;
-}
-/** A heading with the tools of its whole block (unlock or lock all, or give it to the chat). */
-function Head({ gid, cards, children }: { gid: string; cards?: CardCtx; children: React.ReactNode }) {
+// ---- rows shared with the "To resolve" tab ------------------------------------------------------
+
+function Tools({ kind, item, owner, ctx }: { kind: CardKind; item: any; owner?: string; ctx?: CardCtx }) {
+  if (!ctx) return null;
+  const id = cardId(kind, item, owner);
   return (
-    <div className="fg-head card-hover">
-      {children}
-      {cards && <GroupBar gid={gid} ctx={cards} />}
-    </div>
+    <>
+      <CardBar id={id} ctx={ctx} />
+      {ctx.editing === id && <CardEditor key={id} id={id} kind={kind} item={item} ctx={ctx} />}
+    </>
   );
 }
-const STATUS_TONE = { present: "positive", partial: "attention", missing: "attention" } as const;
-const SEVERITY_TONE = { high: "attention", medium: "accent", low: "neutral" } as const;
+const openClass = (ctx: CardCtx | undefined, kind: CardKind, item: any) => ctx?.unlocked.has(cardId(kind, item)) && "is-open";
 
-function Fold({ title, note, children, open }: { title: string; note?: string; children: React.ReactNode; open?: boolean }) {
+export function IssueRow({ q, ctx }: { q: any; ctx?: CardCtx }) {
   return (
-    <details className="fg-fold" open={open}>
-      <summary>
-        <strong>{title}</strong>
-        {note && <small>{note}</small>}
-        <Icon name="chevron-down" size={15} />
-      </summary>
-      <div className="fg-fold-body">{children}</div>
-    </details>
-  );
-}
-
-function Grid({ head, rows, after, hover }: { head: string[]; rows: React.ReactNode[][]; after?: (i: number) => React.ReactNode; hover?: boolean }) {
-  return (
-    <div className="stage-table-scroll">
-      <table className="stage-table">
-        <thead>
-          <tr>
-            {head.map((h, i) => (
-              <th key={h} scope="col" className={hover && i === head.length - 1 ? "card-cell" : undefined}>
-                {hover && i === head.length - 1 ? <span className="stage-visually-hidden">{h}</span> : h}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r, i) => (
-            <Fragment key={i}>
-              <tr className={hover ? "card-hover" : undefined}>
-                {r.map((c, j) => (
-                  <td key={j} className={hover && j === r.length - 1 ? "card-cell" : undefined}>
-                    {c}
-                  </td>
-                ))}
-              </tr>
-              {after?.(i) ? (
-                <tr className="fg-after">
-                  <td colSpan={head.length}>{after(i)}</td>
-                </tr>
-              ) : null}
-            </Fragment>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-/** A long field list with a search box, as in the reference manual. */
-function FieldList({ head, rows, label }: { head: string[]; rows: React.ReactNode[][]; label: string }) {
-  const [q, setQ] = useState("");
-  const [all, setAll] = useState(false);
-  const text = (r: React.ReactNode[]) => r.map((c) => (typeof c === "string" ? c : "")).join(" ").toLowerCase();
-  const hits = rows.filter((r) => text(r).includes(q.trim().toLowerCase()));
-  const shown = all || q ? hits : hits.slice(0, 15);
-  return (
-    <div className="fg-fields">
-      {rows.length > 15 && (
-        <label className="stage-search">
-          <Icon name="search" size={15} />
-          <input type="search" aria-label={`Search fields of ${label}`} placeholder={`Search ${rows.length} fields`} value={q} onChange={(e) => setQ(e.target.value)} />
-        </label>
-      )}
-      <Grid head={head} rows={shown} />
-      {!q && rows.length > 15 && (
-        <button type="button" className="fg-more" onClick={() => setAll(!all)}>
-          {all ? "Show fewer fields" : `Show all ${rows.length} fields`}
-        </button>
-      )}
-    </div>
+    <article className={cn("rv-item card-hover", openClass(ctx, "issue", q))}>
+      <div className="rv-item-head">
+        <Severity level={q.severity} />
+        <strong>{humanDates(q.title)}</strong>
+      </div>
+      <Lines
+        rows={[
+          ["What we found", humanDates(q.evidence)],
+          ["Why it matters", humanDates(q.impact)],
+          ["What we do", humanDates(q.suggested_handling)],
+        ]}
+      />
+      <Tools kind="issue" item={q} ctx={ctx} />
+    </article>
   );
 }
 
-export function FullGuide({ out, guide, cards }: { out: any; guide: OnboardingGuide | null; cards?: CardCtx }) {
+export function CoverageRow({ c, ctx }: { c: any; ctx?: CardCtx }) {
+  const s = COVERAGE[c.status] ?? COVERAGE.missing;
+  return (
+    <li className={cn("rv-cov card-hover", openClass(ctx, "coverage", c))}>
+      <Status tone={s.tone}>{s.word}</Status>
+      <b>{familyName(c.family)}</b>
+      <span>{humanDates(c.evidence)}</span>
+      <Tools kind="coverage" item={c} ctx={ctx} />
+    </li>
+  );
+}
+
+export function QuestionRow({ q, ctx, action }: { q: any; ctx?: CardCtx; action?: React.ReactNode }) {
+  return (
+    <article className={cn("rv-item rv-question card-hover", openClass(ctx, "question", q))}>
+      <div className="rv-item-head">
+        <Icon name="circle-help" size={16} />
+        <strong>{humanDates(q.question)}</strong>
+        {action && <div className="rv-item-action">{action}</div>}
+      </div>
+      <Lines rows={[["Why we ask", humanDates(q.why)], ["For", q.to === "team" ? "Our team" : "The customer"]]} />
+      <Tools kind="question" item={q} ctx={ctx} />
+    </article>
+  );
+}
+
+// ---- the guide ----------------------------------------------------------------------------------
+
+export function FullGuide({ out, guide, cards, onResolve }: { out: any; guide: OnboardingGuide | null; cards?: CardCtx; onResolve?: () => void }) {
   const profiles = useMemo(() => Object.fromEntries((guide?.profile.tables ?? []).map((t) => [t.table, t])), [guide]);
   const views = useMemo(() => guide?.semantic_views ?? [], [guide]);
+  const nameOf = useMemo(() => makeNamer(guide?.semantic_views), [guide]);
   const time = guide?.time_profile;
   const tables: any[] = out.tables ?? [];
   const coverage: any[] = out.coverage ?? [];
   const issues: any[] = [...(out.quality_issues ?? [])].sort((a, b) => "hml".indexOf(a.severity[0]) - "hml".indexOf(b.severity[0]));
-  const [open, setOpen] = useState<AreaKey | "all">("all");
+  const questions: any[] = out.questions ?? [];
 
   const links = useMemo(() => {
     const seen = new Set<string>();
@@ -153,391 +170,455 @@ export function FullGuide({ out, guide, cards }: { out: any; guide: OnboardingGu
         return seen.has(k) ? false : (seen.add(k), true);
       });
   }, [views]);
-  const factTables = semTables.filter((t) => t.metrics.length);
-  const dateCount = time?.dates.length ?? 0;
-  // The column that says where each stock row came from (for example AUDIT_SOURCE): a name that
-  // points at a source, with more than one value, and the most rows behind it.
-  const rowSources = useMemo(() => {
+
+  // The main table over time: the profiled table that has the snapshot date column.
+  const mainTable = useMemo(() => {
+    const col = time?.date_column;
+    return col ? (guide?.profile.tables ?? []).find((t) => t.columns.some((c) => c.column === col))?.table : undefined;
+  }, [guide, time]);
+  const mainHuman = useMemo(() => {
+    const v = mainTable ? semTables.find((t) => t.base_table && shortName(t.base_table).toUpperCase() === shortName(mainTable).toUpperCase()) : undefined;
+    return v ? humanName(v.table) : undefined;
+  }, [mainTable, semTables]);
+  // The column that says where each row came from (for example AUDIT_SOURCE): a name that points
+  // at a source, more than one value, and the most rows behind it.
+  const rowSource = useMemo(() => {
     const rowsOf = (c: { values: { rows: number }[] }) => c.values.reduce((n, v) => n + v.rows, 0);
     const found = (guide?.categories ?? []).filter((c) => /audit|source|origin|backfill|carried/i.test(c.column) && c.values.length > 1);
-    return found.sort((a, b) => rowsOf(b) - rowsOf(a)).slice(0, 1);
+    return found.sort((a, b) => rowsOf(b) - rowsOf(a))[0];
   }, [guide]);
 
   const sections = AREAS.map((a) => {
     const base = tables.filter((t) => areaOf(t.table) === a.key);
-    const names = new Set(base.flatMap((t) => [t.table, short(t.table)]));
-    const sem = semTables.filter((t) => areaOf(t.table) === a.key);
+    const baseShort = new Set(base.map((t) => shortName(t.table).toUpperCase()));
+    const sem = semTables.filter((t) => areaOf(t.table) === a.key || (t.base_table && baseShort.has(shortName(t.base_table).toUpperCase())));
+    const viewOnly = sem.filter((t) => !(t.base_table && baseShort.has(shortName(t.base_table).toUpperCase())));
+    const viewFacts = viewOnly.filter((t) => t.metrics.length || /^fact_/i.test(shortName(t.base_table ?? "")));
+    const viewLookups = viewOnly.filter((t) => !viewFacts.includes(t));
+    const cov = coverage.filter((c) => a.families.includes(c.family));
+    const core = cov.find((c) => c.family === a.core) ?? cov[0];
     return {
       ...a,
       base,
       sem,
-      links: links.filter((l) => areaOf(l.from) === a.key || areaOf(l.to) === a.key).filter((l) => sem.some((t) => t.table === l.from)),
-      coverage: coverage.filter((c) => a.families.includes(c.family)),
-      issues: issues.filter((q) =>
-        (q.columns ?? []).some((c: string) => {
-          const t = c.split(".").slice(0, -1).join(".");
-          return names.has(t) || names.has(short(t));
-        }),
-      ),
+      viewOnly,
+      viewFacts,
+      viewLookups,
+      core,
+      coverage: cov,
+      links: links.filter((l) => areaOf(l.from) === a.key),
+      issues: issues.filter((q) => issueTables(out, q).some((t) => areaOf(t) === a.key)),
     };
-  });
+  }).filter((s) => s.base.length || s.sem.length || s.coverage.length);
   const placed = new Set(sections.flatMap((s) => s.issues));
   const general = issues.filter((q) => !placed.has(q));
-  const visible = sections.filter((s) => (open === "all" || open === s.key) && (s.base.length || s.sem.length));
+  const highs = issues.filter((q) => q.severity === "high").length;
+  const toSend = questions.filter((q) => q.to !== "team").length;
 
-  const tools = (kind: "table" | "issue" | "coverage" | "question" | "view", item: any) => {
-    if (!cards) return null;
-    const id = cardId(kind, item);
-    return (
-      <>
-        <CardBar id={id} ctx={cards} />
-        {cards.editing === id && <CardEditor key={id} id={id} kind={kind} item={item} ctx={cards} />}
-      </>
-    );
-  };
-  const isOpen = (kind: "table" | "issue" | "coverage" | "question" | "view", item: any) =>
-    Boolean(cards?.unlocked.has(cardId(kind, item)));
-
-  const issueRow = (q: any, i: number) => (
-    <article key={i} className={cn("fg-issue card-hover", isOpen("issue", q) && "is-open")}>
-      <div>
-        <strong>{q.title}</strong>
-        <p>{q.evidence}</p>
-        <p>
-          <b>Impact:</b> {q.impact} <b>How we handle it:</b> {q.suggested_handling}
-        </p>
-        {tools("issue", q)}
-      </div>
-      <Chip tone={SEVERITY_TONE[q.severity as keyof typeof SEVERITY_TONE]}>{cap(q.severity)}</Chip>
-    </article>
-  );
+  const summary = String(out.summary ?? "")
+    .split(/(?<=[.!?])\s+(?=[A-Z])/)
+    .map((s) => s.trim())
+    .filter(Boolean);
 
   return (
-    <div className="fg">
-      <div className={cn("fg-overview card-hover", cards?.unlocked.has(OVERVIEW) && "is-open")}>
-        <p className="stage-helper fg-summary">{out.summary}</p>
+    <div className="rv">
+      {/* 1. The answer: what the scan found */}
+      <section className={cn("rv-summary card-hover", cards?.unlocked.has(OVERVIEW) && "is-open")} aria-labelledby="rv-summary-title">
+        <p className="rv-eyebrow">
+          <Icon name="sparkles" size={14} /> Summary · written by the AI, check it
+        </p>
+        <h4 id="rv-summary-title">What this scan found</h4>
+        <ul>
+          {summary.map((s) => (
+            <li key={s}>{humanDates(s)}</li>
+          ))}
+        </ul>
+        {(highs > 0 || questions.length > 0) && (
+          <p className="rv-summary-next">
+            {highs > 0 && <Status tone="decide">{fmt.plural(highs, "high issue")}</Status>}
+            {toSend > 0 && <Status tone="decide">{fmt.plural(toSend, "question")} for the customer</Status>}
+            {onResolve && (
+              <button type="button" className="stage-inline-link" onClick={onResolve}>
+                See what to resolve <Icon name="arrow-right" size={14} />
+              </button>
+            )}
+          </p>
+        )}
         {cards && <CardBar id={OVERVIEW} ctx={cards} />}
         {cards?.editing === OVERVIEW && <CardEditor id={OVERVIEW} kind="overview" item={out} ctx={cards} />}
-      </div>
-      <dl className="source-totals">
-        <div>
-          <dt>Tables profiled</dt>
-          <dd>{tables.length}</dd>
-        </div>
-        <div>
-          <dt>Declared links</dt>
-          <dd>{int.format(links.length)}</dd>
-        </div>
-        <div>
-          <dt>Fact tables</dt>
-          <dd>{factTables.length || tables.filter((t) => t.kind === "fact").length}</dd>
-        </div>
-        <div>
-          <dt>Snapshot dates</dt>
-          <dd>{dateCount ? int.format(dateCount) : "–"}</dd>
-        </div>
-      </dl>
+      </section>
 
-      <div className="stage-segmented fg-jump" role="group" aria-label="Guide sections">
-        <button type="button" aria-pressed={open === "all"} onClick={() => setOpen("all")}>
-          All areas
-        </button>
-        {sections
-          .filter((s) => s.base.length || s.sem.length)
-          .map((s) => (
-            <button key={s.key} type="button" aria-pressed={open === s.key} onClick={() => setOpen(s.key)}>
-              {s.label}
-            </button>
-          ))}
-      </div>
+      {/* 2. Readiness: which areas we can launch */}
+      <Section id="rv-ready" icon="target" title="Readiness by area" point="Which departments we can launch, and what each one still needs. Open an area for its tables.">
+        <div className="rv-tiles">
+          {sections.map((s) => {
+            const st = COVERAGE[s.core?.status] ?? COVERAGE.missing;
+            const others = s.coverage.filter((c) => c !== s.core);
+            return (
+              <a key={s.key} href={`#area-${s.key}`} className={cn("rv-tile", `rv-tile-${st.tone}`)}>
+                <span className="rv-tile-top">
+                  <b>{s.label}</b>
+                  <Status tone={st.tone}>{st.word}</Status>
+                </span>
+                <span className="rv-tile-line">{s.core ? humanDates(s.core.evidence) : "No source found."}</span>
+                {others.length > 0 && (
+                  <span className="rv-tile-fams">
+                    {others.map((c) => (
+                      <span key={c.family} className={`rv-dot rv-dot-${(COVERAGE[c.status] ?? COVERAGE.missing).tone}`} title={(COVERAGE[c.status] ?? COVERAGE.missing).word}>
+                        {familyName(c.family)}
+                      </span>
+                    ))}
+                  </span>
+                )}
+                <span className="rv-tile-foot">{tableCount(s.base.length, s.viewOnly.length)}</span>
+              </a>
+            );
+          })}
+        </div>
+      </Section>
 
-      {visible.map((s) => (
-        <section key={s.key} className="fg-area" aria-labelledby={`fg-${s.key}`}>
-          <header className="card-hover">
-            <div>
-              <h5 id={`fg-${s.key}`}>{s.label}</h5>
-              <p>{s.blurb}</p>
+      {/* 3. The main table over time */}
+      {time && time.dates.length > 1 && (
+        <Section
+          id="rv-history"
+          icon="calendar"
+          title="The main table over time"
+          point="Shows which dates and rows we can trust for trends. Hover the line for a date and its row count."
+          tools={<FactBar id="f:history" ctx={cards} />}
+        >
+          {mainTable && <Name technical={mainTable} human={mainHuman} sub={<small className="rv-muted">Dated by {time.date_column}</small>} />}
+          <DataTimeline points={time.dates} breaks={time.breaks} />
+          <Lines
+            rows={[
+              ...time.breaks.map(
+                (b): [string, React.ReactNode] => [
+                  "Row drop",
+                  <>
+                    {fmt.date(b.to)}: {b.rows?.map(fmt.exact).join(" → ")} rows
+                    {b.rows && b.rows[0] ? <span className="rv-muted"> ({Math.round((100 * (b.rows[1] - b.rows[0])) / b.rows[0])}%)</span> : null}
+                  </>,
+                ],
+              ),
+              [
+                "Filled late",
+                time.filled_late.length ? (
+                  <>
+                    {fmt.plural(time.filled_late.length, "field")} empty until {fmt.date(time.filled_late[0].first_date)}:{" "}
+                    <code>{time.filled_late.slice(0, 3).map((f) => f.column).join(", ")}</code>
+                    {time.filled_late.length > 3 && ` and ${time.filled_late.length - 3} more`}
+                  </>
+                ) : null,
+              ],
+            ]}
+          />
+          {rowSource && (
+            <div className="rv-block card-hover">
+              <Sub title="Where the rows come from" note={<code>{rowSource.column}</code>} />
+              <SplitBar values={rowSource.values.map((v) => ({ value: String(v.value ?? ""), rows: v.rows }))} label={rowSource.column} />
+              <FactBar id={`f:rows:${rowSource.column}`} ctx={cards} />
             </div>
-            <div className="fg-chips">
-              {s.coverage.map((c) => (
-                <Chip key={c.family} tone={STATUS_TONE[c.status as keyof typeof STATUS_TONE]}>
-                  {plain(c.family)}: {c.status}
-                </Chip>
-              ))}
-            </div>
-          {cards && <GroupBar gid={`g:area:${s.key}`} ctx={cards} />}</header>
-
-          {s.coverage.length > 0 && cards && (
-            <Head gid={`g:coverage:${s.key}`} cards={cards}>
-              <h6>Coverage</h6>
-            </Head>
           )}
-
-          {s.coverage.length > 0 && (
-            <ul className="fg-evidence">
-              {s.coverage.map((c) => (
-                <li key={c.family} className={cn("card-hover", isOpen("coverage", c) && "is-open")}>
-                  <strong>{plain(c.family)}</strong> {c.evidence}
-                  {tools("coverage", c)}
-                </li>
-              ))}
-            </ul>
-          )}
-
-          {s.base.length > 0 && (
-            <>
-              <Head gid={`g:tables:${s.key}`} cards={cards}>
-                <h6>Tables</h6>
-              </Head>
-              <Grid
-                head={cards ? ["Table", "Kind", "Rows", "Fields", "One row is", "Key", "Card tools"] : ["Table", "Kind", "Rows", "Fields", "One row is", "Key"]}
-                hover={Boolean(cards)}
-                after={(i) => (cards && cards.editing === cardId("table", s.base[i]) ? tools("table", s.base[i]) : null)}
-                rows={s.base.map((t) => [
-                  <code key="t">{t.table}</code>,
-                  cap(t.kind),
-                  <span key="r" className="stage-mono">{profiles[t.table]?.rows != null ? int.format(profiles[t.table]!.rows as number) : "–"}</span>,
-                  <span key="c" className="stage-mono">{profiles[t.table]?.columns.length ?? "–"}</span>,
-                  t.grain.replace(/^(one( row)?( is| per)?\s+)/i, ""),
-                  <code key="k">{(t.key_columns ?? []).join(", ") || "none found"}</code>,
-                  ...(cards ? [<CardBar key="card" id={cardId("table", t)} ctx={cards} />] : []),
-                ])}
-              />
-            </>
-          )}
-
-          {s.sem.length > 0 && (
-            <>
-              <h6>Tables in the customer&apos;s views</h6>
-              <Grid
-                head={["Table", "Reads", "Role", "Measures", "Fields", "Measured"]}
-                rows={s.sem.map((t) => [
-                  <b key="n">{plain(t.table)}</b>,
-                  <code key="b">{t.base_table ?? "–"}</code>,
-                  t.metrics.length ? "Fact" : /^fact_/i.test(short(t.base_table ?? "")) ? "Fact (no measures)" : "Lookup",
-                  t.metrics.length || "–",
-                  t.dimensions.length,
-                  t.measured ? `${t.measured.first_date} to ${t.measured.last_date}` : <Chip key="m">Not measured</Chip>,
-                ])}
-              />
-            </>
-          )}
-
-          {s.links.length > 0 && (
-            <>
-              <h6>How the tables connect</h6>
-              <Fold title="Every link from these tables" note={`${s.links.length} declared by the customer`} open={s.links.length <= 12}>
-                <Grid
-                  head={["From", "Keys", "To", "Reference"]}
-                  rows={s.links.map((l) => [plain(l.from), <code key="k">{l.keys}</code>, plain(l.to), <code key="r">{l.ref}</code>])}
-                />
-              </Fold>
-            </>
-          )}
-
-          {s.sem.some((t) => t.metrics.length) && (
-            <>
-              <h6>Measures</h6>
-              {s.sem
-                .filter((t) => t.metrics.length)
-                .map((t) => (
-                  <Fold key={t.table} title={plain(t.table)} note={`${t.metrics.length} measures`}>
-                    <Grid
-                      head={["Measure", "Formula", "What it means"]}
-                      rows={t.metrics.map((m) => [<b key="n">{plain(m.name)}</b>, <code key="e">{m.expression}</code>, m.comment || "–"])}
-                    />
-                  </Fold>
-                ))}
-            </>
-          )}
-
-          {(s.sem.length > 0 || s.base.length > 0) && (
-            <>
-              <h6>Fields</h6>
-              {s.sem
-                .filter((t) => t.dimensions.length)
-                .map((t) => (
-                  <Fold key={`sem-${t.table}`} title={plain(t.table)} note={`${t.dimensions.length} fields · customer's descriptions`}>
-                    <FieldList
-                      label={t.table}
-                      head={["Field", "Type", "What the customer says it is"]}
-                      rows={t.dimensions.map((d) => [<span key="n" className="stage-mono">{d.name}</span>, (d.type ?? "").toLowerCase(), d.comment || "–"])}
-                    />
-                  </Fold>
-                ))}
-              {s.base
-                .filter((t) => profiles[t.table]?.columns.length)
-                .map((t) => (
-                  <Fold key={`base-${t.table}`} title={short(t.table)} note={`${profiles[t.table]!.columns.length} fields · measured on the table`}>
-                    <FieldList
-                      label={t.table}
-                      head={["Field", "Type", "Filled", "Distinct values"]}
-                      rows={profiles[t.table]!.columns.map((c) => [
-                        <span key="n" className="stage-mono">{c.column}</span>,
-                        (c.type ?? "").toLowerCase(),
-                        <span key="f" className={cn("stage-mono", c.fill_pct != null && c.fill_pct < 50 && "fg-low")}>{c.fill_pct == null ? "–" : `${Math.round(c.fill_pct)}%`}</span>,
-                        <span key="d" className="stage-mono">{c.distinct == null ? "–" : int.format(c.distinct)}</span>,
-                      ])}
-                    />
-                  </Fold>
-                ))}
-            </>
-          )}
-
-          {s.key === "inventory" && time && (
-            <>
-              {rowSources.length > 0 && (
-                <>
-                  <h6>Which rows are real</h6>
-                  {rowSources.map((c) => {
-                    const total = c.values.reduce((n, v) => n + v.rows, 0) || 1;
-                    return (
-                      <div key={c.column} className="fg-bars">
-                        <p className="stage-helper">
-                          <code>{c.column}</code> tells real counts from copied or back-filled rows.
-                        </p>
-                        {c.values.map((v) => (
-                          <div key={v.value} className="fg-bar">
-                            <span>{v.value}</span>
-                            <i style={{ ["--share" as string]: `${(100 * v.rows) / total}%` }} />
-                            <b className="stage-mono">{int.format(v.rows)}</b>
-                          </div>
-                        ))}
-                      </div>
-                    );
-                  })}
-                </>
-              )}
-              {time.cadence.length > 0 && (
-                <>
-                  <h6>Rows per snapshot date</h6>
-                  <Grid
-                    head={["From", "To", "Every", "Snapshots"]}
-                    rows={time.cadence.map((r: any) => [r.from, r.to, `${r.step_days} ${r.step_days === 1 ? "day" : "days"}`, <span key="c" className="stage-mono">{r.count}</span>])}
-                  />
-                  {time.breaks.length > 0 && (
-                    <ul className="fg-evidence">
-                      {time.breaks.map((b: any, i: number) => (
-                        <li key={i}>
-                          <strong>Row count drops</strong> between {b.from} and {b.to}: {b.rows?.map((n: number) => int.format(n)).join(" then ")} rows.
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                  {time.filled_late.length > 0 && (
-                    <p className="stage-helper">
-                      {time.filled_late.length} fields were empty before they started filling in, for example <code>{time.filled_late[0].column}</code> from {time.filled_late[0].first_date}.
-                    </p>
-                  )}
-                </>
-              )}
-            </>
-          )}
-
-          {s.issues.length > 0 && (
-            <>
-              <Head gid={`g:issues:${s.key}`} cards={cards}>
-                <h6>Data quality in {s.label.toLowerCase()}</h6>
-              </Head>
-              <div className="fg-issues">{s.issues.map(issueRow)}</div>
-            </>
-          )}
-        </section>
-      ))}
-
-      {open === "all" && general.length > 0 && (
-        <section className="fg-area">
-          <header className="card-hover">
-            <div>
-              <h5>Across areas</h5>
-              <p>Data quality findings that are not tied to one area.</p>
-            </div>
-          {cards && <GroupBar gid="g:issues:general" ctx={cards} />}</header>
-          <div className="fg-issues">{general.map(issueRow)}</div>
-        </section>
+        </Section>
       )}
 
-      {open === "all" && (guide?.key_overlaps ?? []).length > 0 && (
-        <section className="fg-area">
-          <header>
-            <div>
-              <h5>Cross-checks between areas</h5>
-              <p>Metrics that combine two areas (weeks of cover, top sellers running out) need the same item code on both sides.</p>
-            </div>
-          </header>
-          {(guide?.key_overlaps ?? []).map((o) => (
-            <div key={o.left + o.right} className="fg-bars">
-              <p>
-                <b>{short(o.left)}</b> against <b>{short(o.right)}</b>
-              </p>
-              <div className="fg-bar">
-                <span>{Math.round(o.pct_of_right)}% match</span>
-                <i style={{ ["--share" as string]: `${o.pct_of_right}%` }} />
+      {/* 4. One card per area */}
+      {sections.map((s) => {
+        const st = COVERAGE[s.core?.status] ?? COVERAGE.missing;
+        const measures = s.sem.filter((t) => t.metrics.length);
+        const fieldCount = s.sem.reduce((n, t) => n + t.dimensions.length, 0) + s.base.reduce((n, t) => n + (profiles[t.table]?.columns.length ?? 0), 0);
+        return (
+          <Section
+            key={s.key}
+            id={`area-${s.key}`}
+            className="rv-area"
+            title={s.label}
+            point={s.use}
+            count={<Status tone={st.tone}>{st.word}</Status>}
+            tools={cards && <GroupBar gid={`g:area:${s.key}`} ctx={cards} />}
+          >
+            {s.coverage.length > 0 && (
+              <div className="rv-block">
+                <Sub title="What we have" tools={cards && <GroupBar gid={`g:coverage:${s.key}`} ctx={cards} />} />
+                <ul className="rv-covs">
+                  {s.coverage.map((c) => (
+                    <CoverageRow key={c.family} c={c} ctx={cards} />
+                  ))}
+                </ul>
               </div>
-              <p className="stage-helper">
-                {int.format(o.shared)} of {int.format(o.right_codes)} recently sold item codes also exist in the stock table ({int.format(o.left_codes)} stock codes). Below 60% means the two use different codes.
-              </p>
-            </div>
-          ))}
-        </section>
-      )}
+            )}
 
-      {open === "all" && (out.semantic_views ?? []).length > 0 && (
-        <section className="fg-area">
-          <header className="card-hover">
-            <div>
-              <h5>Customer semantic views</h5>
-              <p>Views the customer already keeps. They name the measures and say how tables join.</p>
-            </div>
-          {cards && <GroupBar gid="g:views" ctx={cards} />}</header>
-          <div className="fg-issues">
-            {(out.semantic_views as any[]).map((v) => (
-              <article key={v.view} className={cn("fg-issue card-hover", isOpen("view", v) && "is-open")}>
-                <div>
-                  <strong>{v.view}</strong>
-                  <p>{v.purpose}</p>
-                  <p>
-                    <b>One row is:</b> {v.grain}
-                  </p>
-                  {(v.caveats ?? []).length > 0 && (
-                    <div className="fg-caveats">
-                      <b>Cannot answer</b>
-                      <ul>
-                        {(v.caveats as string[]).map((c) => (
-                          <li key={c}>{c}</li>
-                        ))}
-                      </ul>
+            {(s.base.length > 0 || s.viewOnly.length > 0) && (
+              <div className="rv-block">
+                <Sub title="Tables" note={`${s.base.length} read directly${s.viewOnly.length ? ` · ${s.viewOnly.length} only through a view` : ""}`} tools={cards && <GroupBar gid={`g:tables:${s.key}`} ctx={cards} />} />
+                {(s.base.length > 0 || s.viewFacts.length > 0) && (
+                  <div className="rv-tables" role="table" aria-label={`${s.label} tables`}>
+                    <div className="rv-tr rv-th" role="row">
+                      <span role="columnheader">Table</span>
+                      <span role="columnheader">What one row holds</span>
+                      <span role="columnheader">Size</span>
+                      <span role="columnheader">Source</span>
                     </div>
-                  )}
-                  {tools("view", v)}
+                    {s.base.map((t) => {
+                      const p = profiles[t.table];
+                      const inView = s.sem.find((v) => v.base_table && shortName(v.base_table).toUpperCase() === shortName(t.table).toUpperCase());
+                      const id = cardId("table", t);
+                      return (
+                        <Fragment key={t.table}>
+                          <div className={cn("rv-tr card-hover", cards?.unlocked.has(id) && "is-open")} role="row">
+                            <span role="cell">
+                              <Name technical={t.table} human={inView ? humanName(inView.table) : undefined} sub={<small className="rv-muted">{t.purpose}</small>} />
+                            </span>
+                            <span role="cell">
+                              {cap(grainText(t.grain))}
+                              {(t.key_columns ?? []).length > 0 && (
+                                <small className="rv-key">
+                                  Key <code>{t.key_columns.join(", ")}</code>
+                                </small>
+                              )}
+                            </span>
+                            <span role="cell" title={p?.rows != null ? `${fmt.exact(p.rows)} rows` : undefined}>
+                              <b>{fmt.count(p?.rows)} rows</b>
+                              <small className="rv-muted">{p?.columns.length ?? "–"} fields</small>
+                            </span>
+                            <span role="cell">
+                              <Status tone="ready">Read directly</Status>
+                              {inView && <small className="rv-muted">Also in a customer view</small>}
+                            </span>
+                            {cards && <CardBar id={id} ctx={cards} />}
+                          </div>
+                          {cards?.editing === id && <CardEditor key={id} id={id} kind="table" item={t} ctx={cards} />}
+                        </Fragment>
+                      );
+                    })}
+                    {s.viewFacts.map((t) => (
+                      <div key={`${t.view}.${t.table}`} className="rv-tr rv-tr-fact card-hover" role="row">
+                        <span role="cell">
+                          <Name technical={t.base_table ?? t.table} human={humanName(t.table)} />
+                        </span>
+                        <span role="cell">{holds(t.comment) || <span className="rv-muted">No description</span>}</span>
+                        <span role="cell">
+                          <b>{t.metrics.length ? fmt.plural(t.metrics.length, "measure") : "No measures"}</b>
+                          <small className="rv-muted">{fmt.plural(t.dimensions.length, "field")}</small>
+                        </span>
+                        <span role="cell">
+                          <Status tone="partial">Only through a view</Status>
+                        </span>
+                        <FactBar id={`f:vtable:${t.table}`} ctx={cards} />
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {s.viewLookups.length > 0 && (
+                  <Fold title="Lookups reached only through a view" note={`${s.viewLookups.length} tables of names and groups, no measures`}>
+                    <div className="rv-lookups">
+                      {s.viewLookups.map((t) => (
+                        <div key={`${t.view}.${t.table}`} className="rv-lookup card-hover">
+                          <Name technical={t.base_table ?? t.table} human={humanName(t.table)} />
+                          <span className="rv-muted">{holds(t.comment)}</span>
+                          <small className="rv-muted">{fmt.plural(t.dimensions.length, "field")}</small>
+                          <FactBar id={`f:vtable:${t.table}`} ctx={cards} />
+                        </div>
+                      ))}
+                    </div>
+                  </Fold>
+                )}
+              </div>
+            )}
+
+            {s.issues.length > 0 && (
+              <div className="rv-block">
+                <Sub title="What to watch for" note={fmt.plural(s.issues.length, "issue")} tools={cards && <GroupBar gid={`g:issues:${s.key}`} ctx={cards} />} />
+                <div className="rv-items">
+                  {s.issues.map((q) => (
+                    <IssueRow key={q.title} q={q} ctx={cards} />
+                  ))}
                 </div>
-                <Chip tone={v.use_for === "map_from_view" ? "positive" : "neutral"}>{cap(words(v.use_for))}</Chip>
-              </article>
+              </div>
+            )}
+
+            {(s.links.length > 0 || measures.length > 0 || fieldCount > 0) && (
+              <Fold
+                title="For engineers: links, measures and fields"
+                note={[s.links.length && fmt.plural(s.links.length, "link"), measures.length && fmt.plural(measures.reduce((n, t) => n + t.metrics.length, 0), "measure"), fieldCount && fmt.plural(fieldCount, "field")].filter(Boolean).join(" · ")}
+              >
+                {s.links.length > 0 && (
+                  <div className="rv-block card-hover">
+                    <Sub title="How the tables connect" note="declared in the customer's views" />
+                    <div className="stage-table-scroll">
+                      <table className="stage-table rv-compact">
+                        <thead>
+                          <tr>
+                            <th scope="col">From</th>
+                            <th scope="col">To</th>
+                            <th scope="col">Matched on</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {s.links.map((l) => (
+                            <tr key={`${l.from}${l.keys}${l.to}`}>
+                              <td>{nameOf(l.from)}</td>
+                              <td>{nameOf(l.to)}</td>
+                              <td>
+                                <code>{l.keys === l.ref ? l.keys : `${l.keys} = ${l.ref}`}</code>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <FactBar id={`f:links:${s.key}`} ctx={cards} />
+                  </div>
+                )}
+                {measures.length > 0 && (
+                  <div className="rv-block">
+                    <Sub title="The customer's measures" note="their own formulas" />
+                    {measures.map((t) => (
+                      <Fold key={t.table} title={humanName(t.table)} note={fmt.plural(t.metrics.length, "measure")}>
+                        <SearchList
+                          items={t.metrics}
+                          label="measures"
+                          text={(m) => `${m.name} ${m.comment}`}
+                          render={(m) => (
+                            <div key={m.name} className="rv-def">
+                              <b>{humanName(m.name)}</b>
+                              <span>{m.comment || ""}</span>
+                              <code>{m.expression}</code>
+                            </div>
+                          )}
+                        />
+                      </Fold>
+                    ))}
+                  </div>
+                )}
+                {fieldCount > 0 && (
+                  <div className="rv-block">
+                    <Sub title="Fields" />
+                    {s.base
+                      .filter((t) => profiles[t.table]?.columns.length)
+                      .map((t) => (
+                        <Fold key={`b-${t.table}`} title={shortName(t.table)} note={`${profiles[t.table]!.columns.length} fields · measured on the table`}>
+                          <SearchList
+                            items={profiles[t.table]!.columns}
+                            label="fields"
+                            text={(c) => c.column}
+                            render={(c) => (
+                              <div key={c.column} className="rv-field">
+                                <code>{c.column}</code>
+                                <small>{(c.type ?? "").toLowerCase()}</small>
+                                <span className={cn("rv-fill", c.fill_pct != null && c.fill_pct < 50 && "low")} title="Share of rows where it is filled">
+                                  <i style={{ ["--p" as string]: `${c.fill_pct ?? 0}%` }} />
+                                  {c.fill_pct == null ? "–" : `${Math.round(c.fill_pct)}% filled`}
+                                </span>
+                                <small>{c.distinct == null ? "" : `${fmt.count(c.distinct)} distinct`}</small>
+                              </div>
+                            )}
+                          />
+                        </Fold>
+                      ))}
+                    {s.sem
+                      .filter((t) => t.dimensions.length)
+                      .map((t) => (
+                        <Fold key={`s-${t.table}`} title={humanName(t.table)} note={`${t.dimensions.length} fields · the customer's descriptions`}>
+                          <SearchList
+                            items={t.dimensions}
+                            label="fields"
+                            text={(d) => `${d.name} ${d.comment}`}
+                            render={(d) => (
+                              <div key={d.name} className="rv-def">
+                                <code>{d.name}</code>
+                                <span>{d.comment || ""}</span>
+                                <small>{(d.type ?? "").toLowerCase()}</small>
+                              </div>
+                            )}
+                          />
+                        </Fold>
+                      ))}
+                  </div>
+                )}
+              </Fold>
+            )}
+          </Section>
+        );
+      })}
+
+      {general.length > 0 && (
+        <Section id="rv-general" icon="danger-circle" title="Across areas" point="Issues that touch more than one area." tools={cards && <GroupBar gid="g:issues:general" ctx={cards} />}>
+          <div className="rv-items">
+            {general.map((q) => (
+              <IssueRow key={q.title} q={q} ctx={cards} />
             ))}
           </div>
-        </section>
+        </Section>
       )}
 
-      {open === "all" && (out.questions ?? []).length > 0 && (
-        <section className="fg-area">
-          <header className="card-hover">
-            <div>
-              <h5>Questions for the customer</h5>
-              <p>Open items the guide could not settle from the data alone.</p>
+      {/* 5. The customer's own views */}
+      {(out.semantic_views ?? []).length > 0 && (
+        <Section
+          id="rv-views"
+          icon="layers"
+          title="The customer's semantic views"
+          point="Models the customer already keeps. For each one: whether mapping should read from it, and what it cannot answer."
+          tools={cards && <GroupBar gid="g:views" ctx={cards} />}
+        >
+          <div className="rv-items">
+            {(out.semantic_views as any[]).map((v) => {
+              const use = USE_FOR[v.use_for] ?? USE_FOR.reference_only;
+              const graph = (out.view_links as any[] | undefined)?.find((g) => g.view === v.view);
+              return (
+                <article key={v.view} className={cn("rv-item card-hover", openClass(cards, "view", v))}>
+                  <div className="rv-item-head">
+                    <Name technical={v.view} />
+                    <Status tone={use.tone}>{use.word}</Status>
+                  </div>
+                  <Lines
+                    rows={[
+                      ["What it models", humanDates(v.purpose)],
+                      ["One row is", grainText(v.grain)],
+                      ["Size", graph ? `${fmt.plural(graph.tables, "table")}, ${fmt.plural(graph.links, "link")}${graph.unlinked_tables?.length ? `, ${graph.unlinked_tables.length} not linked` : ""}` : null],
+                      ["Covers", (v.families ?? []).length ? (v.families as string[]).map(familyName).join(", ") : null],
+                      [
+                        "Cannot answer",
+                        (v.caveats ?? []).length ? (
+                          <ul className="rv-list">
+                            {(v.caveats as string[]).map((c) => (
+                              <li key={c}>{humanDates(c)}</li>
+                            ))}
+                          </ul>
+                        ) : null,
+                      ],
+                    ]}
+                  />
+                  <Tools kind="view" item={v} ctx={cards} />
+                </article>
+              );
+            })}
+          </div>
+        </Section>
+      )}
+
+      {(guide?.key_overlaps ?? []).length > 0 && (
+        <Section
+          id="rv-overlap"
+          icon="network"
+          title="Cross-checks between areas"
+          point="Metrics that combine two areas (weeks of cover, top sellers running out) need the same item code on both sides. Below 60% means they use different codes."
+          tools={<FactBar id="f:overlap" ctx={cards} />}
+        >
+          {(guide?.key_overlaps ?? []).map((o) => (
+            <div key={o.left + o.right} className="rv-overlap">
+              <span>
+                <b>{nameOf(o.left)}</b> and <b>{nameOf(o.right)}</b>
+              </span>
+              <span className={cn("rv-fill", o.pct_of_right < 60 && "low")}>
+                <i style={{ ["--p" as string]: `${o.pct_of_right}%` }} />
+                {Math.round(o.pct_of_right)}% of codes match
+              </span>
+              <small className="rv-muted">
+                {fmt.exact(o.shared)} of {fmt.exact(o.right_codes)} recently sold codes are in the stock table
+              </small>
             </div>
-          {cards && <GroupBar gid="g:questions" ctx={cards} />}</header>
-          <Grid
-            head={cards ? ["Question", "Why it matters", "For", "Card tools"] : ["Question", "Why it matters", "For"]}
-            hover={Boolean(cards)}
-            after={(i) => (cards && cards.editing === cardId("question", (out.questions as any[])[i]) ? tools("question", (out.questions as any[])[i]) : null)}
-            rows={(out.questions as any[]).map((q) => [
-              q.question,
-              q.why,
-              q.to === "team" ? "The team" : "The customer",
-              ...(cards ? [<CardBar key="card" id={cardId("question", q)} ctx={cards} />] : []),
-            ])}
-          />
-        </section>
+          ))}
+        </Section>
       )}
     </div>
   );

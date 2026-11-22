@@ -674,6 +674,8 @@ export type OnboardingGuide = {
   };
   categories?: { column: string; values: { value: string; rows: number }[] }[];
   key_overlaps?: { left: string; right: string; left_codes: number; right_codes: number; shared: number; pct_of_right: number }[];
+  /** Joins code tested on the data (TABLE.COLUMN ends, share of values that match). */
+  tested_joins?: { source: string; target: string; values?: number; confirmed?: boolean; matched_pct?: number; orphan_values?: number }[];
   archetypes: { archetype: string; description: string; fields: { field: string; meaning: string }[] }[];
   role_archetypes: {
     key: string;

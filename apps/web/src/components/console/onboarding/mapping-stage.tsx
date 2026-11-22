@@ -2,44 +2,29 @@
 /* eslint-disable @typescript-eslint/no-explicit-any -- agent outputs are schema-checked JSON */
 
 import { useRouter } from "next/navigation";
-import { useRef, useState, useTransition } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 
 import { askWorkspaceAI, confirmMappingLink, editProposalItem, reviseProposalItem } from "@/app/console-actions";
 import { ChatJump } from "@/components/console/onboarding/chat-jump";
-import type { AssistantTurn } from "@/lib/client-api";
 import { EngineerChat } from "@/components/console/onboarding/engineer-chat";
+import { WORDS } from "@/components/console/onboarding/mapping-guide";
+import { breakable, FactBar, fmt, Fold, humanDates, humanName, Lines, Section, shortName, Status, Sub, type Tone } from "@/components/console/onboarding/review-kit";
+import { Icon } from "@/components/ui/icon";
 import { appendTurns, truncateTurns, useChatTurns } from "@/lib/chat-store";
-import { FieldFlow, WORDS } from "@/components/console/onboarding/mapping-guide";
-import { Icon, type IconName } from "@/components/ui/icon";
+import type { AssistantTurn } from "@/lib/client-api";
 import type { OnboardingGuide, OnboardingStep } from "@/lib/console-api";
+import { cn } from "@/lib/utils";
 
-type Filter = "All" | "Confirmed" | "Needs review";
-const integer = new Intl.NumberFormat("en-CA");
-const FILTERS: Filter[] = ["All", "Confirmed", "Needs review"];
-const short = (t: string) => t.split(".").pop() ?? t;
+/**
+ * Mapping review (docs/review-format.md): what each standard shape reads from their warehouse.
+ * Answer first (one tile per shape), then one card per shape: its status, where it reads from,
+ * the decisions it needs, the rules it applies, then every field. The query is folded. Links and
+ * fields can be given to the chat with @.
+ */
 
-function Badge({ kind = "neutral", icon, children }: { kind?: "neutral" | "positive" | "attention" | "accent"; icon?: IconName; children: React.ReactNode }) {
-  return (
-    <span className={`stage-badge ${kind}`}>
-      {icon && <Icon name={icon} size={13} />}
-      {children}
-    </span>
-  );
-}
-
-function PanelTitle({ title, description, icon }: { title: string; description: string; icon: IconName }) {
-  return (
-    <div className="stage-panel-heading">
-      <span className="stage-heading-icon">
-        <Icon name={icon} size={19} />
-      </span>
-      <div>
-        <h3>{title}</h3>
-        <p>{description}</p>
-      </div>
-    </div>
-  );
-}
+type Filter = "All" | "Needs review" | "Confirmed";
+const FILTERS: Filter[] = ["All", "Needs review", "Confirmed"];
+type Link = { a: any; check: any; ok: boolean; confirmed: boolean; unmappable: boolean; labOnly: boolean };
 
 /** Their tables behind one link, the one that feeds most fields first. */
 function sources(a: any): string[] {
@@ -52,27 +37,23 @@ function sources(a: any): string[] {
   return [...count.entries()].sort((x, y) => y[1] - x[1]).map(([t]) => t);
 }
 
-function confidenceOf(a: any): string {
-  const used = (a.fields ?? []).filter((f: any) => f.source_columns?.length);
-  if (!used.length) return "No source";
-  if (used.some((f: any) => f.confidence === "low")) return "Low confidence";
-  if (used.every((f: any) => f.confidence === "high")) return "High confidence";
-  return "Medium confidence";
+/** The view a link reads through, from its query: semantic_view(DB.SCHEMA.VIEW ...). */
+const viewOf = (sql: string) => /semantic_view\s*\(\s*([\w.$"]+)/i.exec(sql ?? "")?.[1]?.replace(/"/g, "");
+/** Tables named in FROM / JOIN of a query (for a link that reads tables directly). */
+const tablesOf = (sql: string) => [...new Set([...(sql ?? "").matchAll(/\b(?:from|join)\s+([\w.$"]+)/gi)].map((m) => m[1].replace(/"/g, "")).filter((t) => !/^semantic_view$/i.test(t) && t.includes(".")))];
+
+function status(l: Link): { tone: Tone; word: string } {
+  if (l.unmappable) return { tone: "missing", word: "Not in their data" };
+  if (!l.ok) return { tone: "fail", word: "Fails the check" };
+  if (l.confirmed) return { tone: "ready", word: "Confirmed" };
+  if (l.a.status === "partial" || (l.a.questions ?? []).length) return { tone: "decide", word: "Needs a decision" };
+  return { tone: "partial", word: "Ready to confirm" };
 }
 
-type Link = { a: any; check: any; ok: boolean; confirmed: boolean; unmappable: boolean };
+const firstSentence = (s: string) => s.split(/(?<=\.)\s/)[0] ?? s;
+const CONF: Record<string, Tone> = { high: "ready", medium: "partial", low: "fail" };
 
-export function MappingStage({
-  step,
-  guide,
-  workspaceId,
-  can,
-}: {
-  step: OnboardingStep;
-  guide: OnboardingGuide | null;
-  workspaceId: string;
-  can: boolean;
-}) {
+export function MappingStage({ step, guide, workspaceId, can }: { step: OnboardingStep; guide: OnboardingGuide | null; workspaceId: string; can: boolean }) {
   const router = useRouter();
   const out = step.output as any;
   const checks = (step.checks?.archetypes ?? {}) as Record<string, any>;
@@ -83,7 +64,7 @@ export function MappingStage({
   const links: Link[] = (out.archetypes as any[]).map((a) => {
     const check = checks[a.archetype] ?? {};
     const unmappable = a.status === "unmappable";
-    return { a, check, ok: !unmappable && Boolean(check.ok), confirmed: approved || confirmedKeys.includes(a.archetype), unmappable };
+    return { a, check, ok: !unmappable && Boolean(check.ok), confirmed: approved || confirmedKeys.includes(a.archetype), unmappable, labOnly: Boolean(check.lab_not_run) };
   });
   // Links that pass their live test are the ones the calculations use; those are confirmed one by one.
   const reviewable = links.filter((l) => l.ok);
@@ -92,23 +73,34 @@ export function MappingStage({
   const percent = Math.round((confirmed / (reviewable.length || 1)) * 100);
 
   const [filter, setFilter] = useState<Filter>("All");
-  const [openKey, setOpenKey] = useState<string | null>(null);
   const { turns, clear } = useChatTurns(workspaceId, "mapping");
   const [thinking, setThinking] = useState(false);
   const [busy, start] = useTransition();
   const [note, setNote] = useState<Record<string, { ok: boolean; text: string }>>({});
   const [instruction, setInstruction] = useState<Record<string, string>>({});
   const [sql, setSql] = useState<Record<string, string>>(() => Object.fromEntries((out.archetypes as any[]).map((a) => [a.archetype, a.source_sql])));
+  const [mentioned, setMentioned] = useState<string[]>([]);
   const list = useRef<HTMLDivElement>(null);
 
   const visible = links.filter((l) => (filter === "All" ? true : filter === "Confirmed" ? l.confirmed : !l.confirmed && !l.unmappable));
+  const mentionables = useMemo(
+    () =>
+      (out.archetypes as any[]).flatMap((a) => [
+        { id: `m:${a.archetype}`, label: WORDS[a.archetype] ?? a.archetype, kind: "link", locked: false, note: "Given to the chat as context" },
+        ...(a.fields ?? []).map((f: any) => ({ id: `m:${a.archetype}.${f.field}`, label: `${WORDS[a.archetype] ?? a.archetype}: ${f.field}`, kind: "field", locked: false, note: "Given to the chat as context" })),
+      ]),
+    [out.archetypes],
+  );
+  const mentions = mentioned.filter((id) => mentionables.some((m) => m.id === id));
+  const at = { mentioned: new Set(mentions), onMention: (id: string) => setMentioned((cur) => (cur.includes(id) || cur.length >= 8 ? cur : [...cur, id])) };
 
-  const ask = (text: string, earlier?: AssistantTurn[]) => {
-    const history = earlier ?? turns;
-    appendTurns(workspaceId, "mapping", { role: "user", text, intent: "ask" });
+  const ask = (text: string, earlier?: { history: AssistantTurn[]; cards: string[] }) => {
+    const history = earlier?.history ?? turns;
+    const cards = earlier?.cards ?? mentions;
+    appendTurns(workspaceId, "mapping", { role: "user", text, intent: "ask", cards });
     setThinking(true);
     start(async () => {
-      const res = await askWorkspaceAI(workspaceId, "mapping", text, history);
+      const res = await askWorkspaceAI(workspaceId, "mapping", text, history, cards);
       if (res.ok && res.data) {
         const { answer, sources: src, grounded, unverified } = res.data;
         appendTurns(workspaceId, "mapping", { role: "assistant", text: answer, check: { sources: src, grounded, unverified } });
@@ -120,8 +112,9 @@ export function MappingStage({
   // Edit a question in place: ask it again from that message on, and clear what came after it.
   const resend = (index: number, text: string) => {
     const history = turns.slice(0, index);
+    const cards = turns[index]?.cards ?? [];
     truncateTurns(workspaceId, "mapping", index);
-    ask(text, history);
+    ask(text, { history, cards });
   };
 
   const saved = (key: string, res: { ok: boolean; error?: string; data?: any }, ok: string) => {
@@ -132,63 +125,90 @@ export function MappingStage({
     router.refresh();
   };
 
+  const jump = (key: string) => {
+    setFilter("All");
+    requestAnimationFrame(() => list.current?.querySelector(`[data-link="${key}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  };
   const nextToReview = () => {
     const next = reviewable.find((l) => !l.confirmed);
-    if (!next) return;
-    setFilter("All");
-    setOpenKey(next.a.archetype);
-    requestAnimationFrame(() => list.current?.querySelector(`[data-link="${next.a.archetype}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" }));
+    if (next) jump(next.a.archetype);
   };
 
   return (
     <>
-      <section className="stage-panel stage-content-panel mapping-progress">
-        <PanelTitle
-          title="Mapping progress"
-          description={pending ? "Review the remaining links before starting the Org Web." : "The confirmed mappings are ready to use in the metric catalog."}
-          icon="network"
-        />
-        <div className="mapping-meter">
-          <div className="mapping-meter-top">
-            <span>
-              <strong>{confirmed}</strong> of {reviewable.length} mappings confirmed
-            </span>
-            <b className="stage-mono">{percent}%</b>
-          </div>
-          <div
-            className="mapping-segments"
-            role="progressbar"
-            aria-label="Confirmed mappings"
-            aria-valuemin={0}
-            aria-valuemax={reviewable.length || 1}
-            aria-valuenow={confirmed}
-            aria-valuetext={`${confirmed} confirmed, ${pending} need review`}
-          >
-            {reviewable.map((l, i) => (
-              <span key={l.a.archetype} className={i < confirmed ? "is-confirmed" : ""} />
-            ))}
-          </div>
-          <div className="mapping-meter-foot">
-            <div className="mapping-legend">
-              <span>
-                <i />
-                {confirmed} confirmed
-              </span>
-              <span>
-                <i />
-                {pending} to review
-              </span>
+      <section className="stage-panel stage-content-panel">
+        <div className="rv">
+          <section className="rv-summary" aria-labelledby="mp-summary">
+            <p className="rv-eyebrow">
+              <Icon name="network" size={14} /> Summary · links between their data and our standard shapes
+            </p>
+            <h4 id="mp-summary">
+              {reviewable.length} of {links.length} shapes have a working source
+            </h4>
+            <p className="rv-muted">
+              Each shape is one read-only query on their warehouse. Our tested calculations read only these shapes, so every metric works the same way for every customer. Confirm each link once its
+              decisions are answered.
+            </p>
+            <div className="mapping-meter">
+              <div className="mapping-meter-top">
+                <span>
+                  <strong>{confirmed}</strong> of {reviewable.length} confirmed
+                </span>
+                <b className="stage-mono">{percent}%</b>
+              </div>
+              <div className="mapping-segments" role="progressbar" aria-label="Confirmed mappings" aria-valuemin={0} aria-valuemax={reviewable.length || 1} aria-valuenow={confirmed} aria-valuetext={`${confirmed} confirmed, ${pending} to review`}>
+                {reviewable.map((l, i) => (
+                  <span key={l.a.archetype} className={i < confirmed ? "is-confirmed" : ""} />
+                ))}
+              </div>
+              <div className="mapping-meter-foot">
+                <span className="rv-muted">{pending ? `${pending} to review` : "All confirmed"}</span>
+                {pending > 0 && (
+                  <button type="button" className="stage-inline-link" onClick={nextToReview}>
+                    Next to review <Icon name="arrow-right" size={15} />
+                  </button>
+                )}
+              </div>
             </div>
-            {pending ? (
-              <button type="button" className="stage-inline-link" onClick={nextToReview}>
-                View next mapping <Icon name="arrow-right" size={15} />
-              </button>
-            ) : (
-              <Badge kind="positive" icon="check">
-                All mappings confirmed
-              </Badge>
-            )}
-          </div>
+          </section>
+
+          <Section icon="target" title="Shapes at a glance" point="What each standard shape reads from, and what it still needs. Open a shape for its fields.">
+            <div className="rv-tiles">
+              {links.map((l) => {
+                const st = status(l);
+                const view = viewOf(l.a.source_sql);
+                const from = view ? [view] : tablesOf(l.a.source_sql).length ? tablesOf(l.a.source_sql) : sources(l.a);
+                const found = (l.a.fields ?? []).filter((f: any) => f.source_columns?.length).length;
+                return (
+                  <button key={l.a.archetype} type="button" className={cn("rv-tile", `rv-tile-${st.tone === "ready" ? "ready" : st.tone === "missing" ? "missing" : "partial"}`)} onClick={() => jump(l.a.archetype)}>
+                    <span className="rv-tile-top">
+                      <b>{WORDS[l.a.archetype] ?? humanName(l.a.archetype)}</b>
+                      <Status tone={st.tone}>{st.word}</Status>
+                    </span>
+                    <span className="rv-tile-line">
+                      {l.unmappable ? (
+                        l.a.questions?.[0] ? humanDates(l.a.questions[0]) : "No source in their data."
+                      ) : from.length ? (
+                        <>
+                          {view ? "Through the view " : "From "}
+                          {breakable(from.map(shortName).slice(0, 2).join(", "))}
+                          {from.length > 2 ? ` +${from.length - 2}` : ""}
+                        </>
+                      ) : (
+                        "Their tables"
+                      )}
+                    </span>
+                    {!l.unmappable && (
+                      <span className="rv-tile-foot">
+                        {found} of {(l.a.fields ?? []).length} fields found
+                        {(l.a.questions ?? []).length > 0 && ` · ${fmt.plural(l.a.questions.length, "decision")}`}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </Section>
         </div>
       </section>
 
@@ -199,194 +219,218 @@ export function MappingStage({
           pending=""
           thinking={thinking}
           emptyTitle="What would you like to review?"
-          intro="Ask about a link, its confidence, or what to review next."
+          intro="Ask about a link or a field. Hover a shape or a field and press @ to give it to the chat."
           placeholder="Ask about a mapping…"
           starters={["Which mappings need review?", `Explain ${WORDS[reviewable[0]?.a.archetype] ?? "the first link"}`]}
-          onAsk={ask}
+          onAsk={(text) => ask(text)}
           onClear={clear}
           onResend={resend}
+          mentionables={mentionables}
+          mentions={mentions}
+          onMentions={setMentioned}
         />
       </div>
-      <ChatJump />
+      <ChatJump count={mentions.length} />
 
       <section className="stage-panel stage-content-panel">
-        <PanelTitle title="Mapping review" description="Compare each of their tables with the shape it feeds in the Formada standard model." icon="network" />
-        <div className="stage-filters" aria-label="Filter results">
-          {FILTERS.map((v) => (
-            <button key={v} type="button" aria-pressed={filter === v} className={`stage-filter${filter === v ? " selected" : ""}`} onClick={() => setFilter(v)}>
-              {v}
-            </button>
-          ))}
-        </div>
-        <div className="stage-mapping-list" ref={list}>
-          {visible.length ? (
-            visible.map(({ a, check, ok, confirmed: done, unmappable }) => {
-              const key = a.archetype;
-              const meta = metas[key];
-              const fills = Object.fromEntries((check.fills ?? []).map((x: any) => [x.field, x.fill_pct]));
-              const meanings = Object.fromEntries((meta?.fields ?? []).map((f) => [f.field, f.meaning]));
-              const from = sources(a);
-              return (
-                <details
-                  key={key}
-                  data-link={key}
-                  className="stage-disclosure stage-map-row"
-                  data-confirmed={done}
-                  open={openKey === key}
-                  onToggle={(e) => {
-                    const o = (e.currentTarget as HTMLDetailsElement).open;
-                    setOpenKey((cur) => (o ? key : cur === key ? null : cur));
-                  }}
+        <div className="rv" ref={list}>
+          <div className="stage-filters" aria-label="Filter shapes">
+            {FILTERS.map((v) => (
+              <button key={v} type="button" aria-pressed={filter === v} className={`stage-filter${filter === v ? " selected" : ""}`} onClick={() => setFilter(v)}>
+                {v}
+              </button>
+            ))}
+          </div>
+          {visible.length === 0 && <p className="stage-table-empty">No shapes in this view.</p>}
+          {visible.map((l) => {
+            const { a, check, ok, confirmed: done, unmappable } = l;
+            const key = a.archetype;
+            const meta = metas[key];
+            const st = status(l);
+            const fills: Record<string, number> = Object.fromEntries((check.fills ?? []).map((x: any) => [x.field, x.fill_pct]));
+            const meanings: Record<string, string> = Object.fromEntries((meta?.fields ?? []).map((f) => [f.field, f.meaning]));
+            const view = viewOf(a.source_sql);
+            const tables = tablesOf(a.source_sql);
+            const fields: any[] = a.fields ?? [];
+            const found = fields.filter((f) => f.source_columns?.length);
+            const missing = fields.filter((f) => !f.source_columns?.length);
+            return (
+              <div key={key} data-link={key} className="rv-link-anchor">
+                <Section
+                  className="rv-area"
+                  title={WORDS[key] ?? humanName(key)}
+                  count={<Status tone={st.tone}>{st.word}</Status>}
+                  point={meta?.description ? firstSentence(meta.description) : undefined}
+                  tools={<FactBar id={`m:${key}`} ctx={at} note={null} />}
                 >
-                  <summary>
-                    <span className="stage-map-source">
-                      <small>{unmappable ? "Their data" : `${from.length} ${from.length === 1 ? "table" : "tables"}`}</small>
-                      <code>{unmappable ? "Not in their data" : from.length ? `${short(from[0])}${from.length > 1 ? ` +${from.length - 1}` : ""}` : "Their tables"}</code>
-                    </span>
-                    <span className="stage-map-arrow">
-                      <Icon name="arrow-right" size={17} />
-                    </span>
-                    <span className="stage-map-source stage-map-target">
-                      <small>Formada standard model</small>
-                      <code>{key}</code>
-                    </span>
-                    <span className="stage-map-state">
-                      {unmappable ? (
-                        <Badge>Not in their data</Badge>
-                      ) : !ok ? (
-                        <Badge kind="attention">Fails the live test</Badge>
-                      ) : (
-                        <Badge kind={done ? "positive" : "attention"}>{done ? "Confirmed" : "Needs review"}</Badge>
-                      )}
-                      <small>{unmappable ? "No source" : confidenceOf(a)}</small>
-                    </span>
-                    <Icon name="chevron-down" size={15} />
-                  </summary>
-                  <div className="stage-map-detail">
-                    <div>
-                      <strong>{WORDS[key] ?? key}</strong>
-                      <p>
-                        {meta?.description ?? ""}
-                        {unmappable ? ` ${a.questions?.[0] ?? "Their warehouse has no source for this, so cards that need it stay off."}` : ""}
-                      </p>
-                    </div>
-                    {can && ok && !done && (
-                      <button
-                        type="button"
-                        className="btn btn-primary"
-                        disabled={busy}
-                        onClick={() => start(async () => saved(key, await confirmMappingLink(workspaceId, step.id, key), "Confirmed. This link is kept if the analysis runs again."))}
-                      >
-                        <Icon name="check" size={17} />
-                        <span>Confirm mapping</span>
-                      </button>
-                    )}
-                  </div>
-                  {!unmappable && (
-                    <div className="space-y-3 px-1 pb-2">
-                      <div className="flex flex-wrap gap-2">
-                        <Badge kind={check.rows ? "positive" : "attention"}>{integer.format(check.rows ?? 0)} rows</Badge>
-                        {check.first_date && (
-                          <Badge>
-                            {check.first_date} to {check.last_date}
-                          </Badge>
-                        )}
-                        {check.dates != null && <Badge>{integer.format(check.dates)} dates</Badge>}
-                      </div>
-                      {(check.errors ?? []).map((e: string) => (
-                        <p key={e} className="stage-badge attention">
-                          {e}
-                        </p>
-                      ))}
-                      {(check.warnings ?? []).map((w: string) => (
-                        <p key={w} className="stage-helper">
-                          {w}
-                        </p>
-                      ))}
-                      <FieldFlow a={a} fills={fills} meanings={meanings} />
-                      {a.filters?.length > 0 && (
-                        <div>
-                          <p className="eyebrow">Rules applied to their rows</p>
-                          <ul className="list-disc pl-5 text-sm">
-                            {a.filters.map((f: string, i: number) => (
-                              <li key={i}>{f}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                      {a.questions?.length > 0 && (
-                        <ul className="list-disc pl-5 text-xs text-muted-foreground">
-                          {a.questions.map((q: string, i: number) => (
-                            <li key={i}>{q}</li>
-                          ))}
-                        </ul>
-                      )}
+                  <Lines
+                    rows={[
+                      ["Standard shape", <code key="k">{key}</code>],
+                      ["About it", meta?.description && firstSentence(meta.description) !== meta.description ? <span className="rv-muted">{meta.description.slice(firstSentence(meta.description).length).trim()}</span> : null],
+                      ["Reads from", unmappable ? "Nothing: their warehouse has no source for this" : view ? <>The customer&apos;s view <code>{view}</code></> : tables.length ? <code>{tables.join(", ")}</code> : sources(a).map(shortName).join(", ")],
+                      [
+                        "Rows",
+                        unmappable ? null : l.labOnly ? (
+                          <span className="rv-muted">Not run in the review lab: the query runs on their warehouse in production.</span>
+                        ) : check.rows != null ? (
+                          <>
+                            {fmt.count(check.rows)} rows{check.first_date ? ` · ${fmt.range(check.first_date, check.last_date, true)}` : ""}
+                            {check.dates != null ? ` · ${fmt.plural(check.dates, "date")}` : ""}
+                          </>
+                        ) : null,
+                      ],
+                      ["Fields", unmappable ? null : `${found.length} of ${fields.length} found${missing.length ? ` · ${missing.length} not in their data` : ""}`],
+                    ]}
+                  />
+
+                  {(check.errors ?? []).length > 0 && (
+                    <div className="rv-alert rv-alert-fail">
+                      <b>The check failed</b>
+                      <ul className="rv-list">
+                        {(check.errors as string[]).map((e) => (
+                          <li key={e}>{e}</li>
+                        ))}
+                      </ul>
                     </div>
                   )}
+
+                  {(a.questions ?? []).length > 0 && (
+                    <div className="rv-block">
+                      <Sub title={unmappable ? "What we would need" : "Decisions needed"} note={unmappable ? undefined : "answer before confirming"} />
+                      <ul className="rv-decisions">
+                        {(a.questions as string[]).map((q) => (
+                          <li key={q}>
+                            <Icon name="circle-help" size={15} />
+                            <span>{humanDates(q)}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {(a.filters ?? []).length > 0 && (
+                    <div className="rv-block">
+                      <Sub title="Rules applied to their rows" />
+                      <ul className="rv-rules">
+                        {(a.filters as string[]).map((f) => (
+                          <li key={f}>{humanDates(f)}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {(check.warnings ?? []).length > 0 && (
+                    <div className="rv-alert">
+                      <b>Notes from the check</b>
+                      <ul className="rv-list">
+                        {(check.warnings as string[]).map((w) => (
+                          <li key={w}>{w}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {fields.length > 0 && (
+                    <div className="rv-block">
+                      <Sub title="Field by field" note="our field ← their column" />
+                      <div className="rv-fields" role="table" aria-label={`${WORDS[key] ?? key} fields`}>
+                        <div className="rv-fr rv-th" role="row">
+                          <span role="columnheader">Our field</span>
+                          <span role="columnheader">Their column</span>
+                          <span role="columnheader">How</span>
+                          <span role="columnheader">Confidence</span>
+                        </div>
+                        {[...found, ...missing].map((f) => {
+                          const has = f.source_columns?.length > 0;
+                          return (
+                            <div key={f.field} className={cn("rv-fr card-hover", !has && "rv-fr-missing")} role="row" title={f.reason}>
+                              <span role="cell">
+                                <code className="rv-ours">{f.field}</code>
+                                {meanings[f.field] && <small className="rv-muted">{meanings[f.field]}</small>}
+                              </span>
+                              <span role="cell">{has ? <code>{(f.source_columns as string[]).join(" + ")}</code> : <span className="rv-muted">Not in their data</span>}</span>
+                              <span role="cell">
+                                {has ? humanDates(f.expression) : <span className="rv-muted">Left empty</span>}
+                                {fills[f.field] != null && (
+                                  <span className={cn("rv-fill", fills[f.field] < 50 && "low")}>
+                                    <i style={{ ["--p" as string]: `${fills[f.field]}%` }} />
+                                    {Math.round(fills[f.field])}% filled
+                                  </span>
+                                )}
+                              </span>
+                              <span role="cell">{has ? <Status tone={CONF[f.confidence] ?? "partial"}>{f.confidence}</Status> : <Status tone="missing">none</Status>}</span>
+                              <FactBar id={`m:${key}.${f.field}`} ctx={at} note={null} />
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
                   {can && !unmappable && (
-                    <form
-                      className="stage-form stage-metric-form"
-                      onSubmit={(e) => {
-                        e.preventDefault();
-                        const text = (instruction[key] ?? "").trim();
-                        if (!text) return;
-                        start(async () => {
-                          saved(key, await reviseProposalItem(workspaceId, "mapping", step.id, key, text), "Changed by AI as a new proposal; only this link changed and it needs a new confirmation.");
-                          setInstruction((s) => ({ ...s, [key]: "" }));
-                        });
-                      }}
-                    >
-                      <label>
-                        Ask the AI to change this link
-                        <input
-                          value={instruction[key] ?? ""}
-                          maxLength={2000}
-                          placeholder="e.g. also exclude locations whose name starts with Legacy"
-                          onChange={(e) => setInstruction((s) => ({ ...s, [key]: e.target.value }))}
-                        />
-                      </label>
-                      <details>
-                        <summary className="stage-inline-link">The query (read-only on their warehouse)</summary>
-                        <textarea
-                          className="mt-2 w-full rounded-lg border border-border bg-surface p-3 font-mono text-[11px] leading-relaxed"
-                          rows={Math.min(18, (sql[key] ?? "").split("\n").length + 1)}
-                          spellCheck={false}
-                          value={sql[key] ?? ""}
-                          onChange={(e) => setSql((s) => ({ ...s, [key]: e.target.value }))}
-                        />
-                        <button
-                          type="button"
-                          className="btn btn-secondary mt-2"
-                          disabled={busy || sql[key] === a.source_sql}
-                          onClick={() =>
-                            start(async () =>
-                              saved(key, await editProposalItem(workspaceId, "mapping", step.id, key, { ...a, source_sql: sql[key] }), "Query saved and re-run on their warehouse for this link only."),
-                            )
-                          }
+                    <div className="rv-link-actions">
+                      <Fold title="Change this link" note="ask the AI, or edit the query yourself">
+                        <form
+                          className="stage-form"
+                          onSubmit={(e) => {
+                            e.preventDefault();
+                            const text = (instruction[key] ?? "").trim();
+                            if (!text) return;
+                            start(async () => {
+                              saved(key, await reviseProposalItem(workspaceId, "mapping", step.id, key, text), "Changed by the AI as a new proposal. Only this link changed, and it needs a new confirmation.");
+                              setInstruction((s) => ({ ...s, [key]: "" }));
+                            });
+                          }}
                         >
-                          <Icon name="refresh" size={17} />
-                          <span>Save and re-check this link</span>
-                        </button>
-                      </details>
+                          <label>
+                            Ask the AI to change this link
+                            <input value={instruction[key] ?? ""} maxLength={2000} placeholder="For example: also exclude locations whose name starts with Legacy" onChange={(e) => setInstruction((s) => ({ ...s, [key]: e.target.value }))} />
+                          </label>
+                          <div className="stage-form-footer">
+                            <button type="submit" className="btn btn-secondary" disabled={busy || !(instruction[key] ?? "").trim()}>
+                              <Icon name="sparkles" size={17} />
+                              <span>Change this link</span>
+                            </button>
+                          </div>
+                        </form>
+                        <label className="rv-sql">
+                          The query (read-only on their warehouse)
+                          <textarea rows={Math.min(18, (sql[key] ?? "").split("\n").length + 1)} spellCheck={false} value={sql[key] ?? ""} onChange={(e) => setSql((s) => ({ ...s, [key]: e.target.value }))} />
+                        </label>
+                        <div className="stage-form-footer">
+                          <button
+                            type="button"
+                            className="btn btn-secondary"
+                            disabled={busy || sql[key] === a.source_sql}
+                            onClick={() => start(async () => saved(key, await editProposalItem(workspaceId, "mapping", step.id, key, { ...a, source_sql: sql[key] }), "Query saved and checked again for this link only."))}
+                          >
+                            <Icon name="refresh" size={17} />
+                            <span>Save and check again</span>
+                          </button>
+                        </div>
+                      </Fold>
                       {note[key] && (
-                        <p className="metric-form-error" role="status" style={{ color: note[key].ok ? undefined : undefined }}>
+                        <p className={cn("rv-alert", !note[key].ok && "rv-alert-fail")} role="status">
                           {note[key].text}
                         </p>
                       )}
-                      <div className="stage-form-footer">
-                        <button type="submit" className="btn btn-secondary" disabled={busy || !(instruction[key] ?? "").trim()}>
-                          <Icon name="sparkles" size={17} />
-                          <span>Change this link</span>
+                      {ok && !done && (
+                        <button
+                          type="button"
+                          className="btn btn-primary rv-confirm"
+                          disabled={busy}
+                          onClick={() => start(async () => saved(key, await confirmMappingLink(workspaceId, step.id, key), "Confirmed. This link is kept if the analysis runs again."))}
+                        >
+                          <Icon name="check" size={17} />
+                          <span>Confirm this link</span>
                         </button>
-                      </div>
-                    </form>
+                      )}
+                    </div>
                   )}
-                </details>
-              );
-            })
-          ) : (
-            <p className="stage-table-empty">No mappings in this view.</p>
-          )}
+                </Section>
+              </div>
+            );
+          })}
         </div>
       </section>
     </>

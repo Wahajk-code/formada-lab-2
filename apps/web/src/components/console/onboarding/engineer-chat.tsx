@@ -41,7 +41,8 @@ type Props = {
   onResend?: (index: number, text: string) => void;
 };
 
-export type Mentionable = { id: string; label: string; kind: string; locked: boolean };
+/** `note` replaces the chip's hover text (for example "Measured: read-only"). */
+export type Mentionable = { id: string; label: string; kind: string; locked: boolean; note?: string };
 
 /** The engineering assistant (Formada.AI design, engineer-chat): ask about the section, or
  * rerun just that section with a correction. */
@@ -214,7 +215,7 @@ function Chat({
               {mentions.map((id) => {
                 const m = byId.get(id);
                 return (
-                  <span key={id} className={`mention-chip${m?.locked ? " is-locked" : ""}`} title={m?.locked ? "Locked: it will not be changed" : "Can be changed"}>
+                  <span key={id} className={`mention-chip${m?.locked ? " is-locked" : ""}`} title={m?.note ?? (m?.locked ? "Locked: it will not be changed" : "Can be changed")}>
                     <span aria-hidden="true">@</span>
                     {m?.label ?? id}
                     {m?.locked && <Icon name="lock" size={12} />}

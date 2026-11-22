@@ -21,39 +21,26 @@ import { appendTurns, truncateTurns, useChatTurns } from "@/lib/chat-store";
 import { cardId, cardList, groupIndex, type CardSuggestion } from "@/lib/discovery-cards";
 import { EngineerChat } from "@/components/console/onboarding/engineer-chat";
 import { cn } from "@/lib/utils";
-import { FullGuide } from "@/components/console/onboarding/full-guide";
+import { CoverageRow, FullGuide, IssueRow, QuestionRow } from "@/components/console/onboarding/full-guide";
+import { fmt, humanName, makeNamer, Section, Status, Sub } from "@/components/console/onboarding/review-kit";
 import { Icon, type IconName } from "@/components/ui/icon";
 import type { AssistantTurn } from "@/lib/client-api";
 import type { OnboardingGuide } from "@/lib/console-api";
 
 type Section = "guide" | "relationships" | "gaps";
-type Dimension = "tables" | "columns" | "rows";
 
-const SECTIONS: Record<Section, string> = { guide: "Data guide", relationships: "Relationships", gaps: "Coverage gaps" };
-const DIMENSIONS: Record<Dimension, string> = { tables: "Tables", columns: "Columns", rows: "Rows profiled" };
+const SECTIONS: Record<Section, string> = { guide: "Data guide", relationships: "Relationships", gaps: "To resolve" };
 const STARTERS: Record<Section, string[]> = {
   guide: ["What is the main table and why?", "Which table holds the stock counts?"],
   relationships: ["Which join needs review?", "How do the tables connect?"],
   gaps: ["Why is this area missing?", "What should we ask the customer?"],
 };
-const integer = new Intl.NumberFormat("en-CA");
-const compact = new Intl.NumberFormat("en-CA", { notation: "compact", maximumFractionDigits: 1 });
 const short = (t: string) => t.split(".").pop() ?? t;
 const schemaOf = (t: string) => {
   const parts = t.split(".");
   return parts.length > 1 ? parts[parts.length - 2] : "SOURCE";
 };
-const words = (s: string) => s.replaceAll("_", " ");
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
-
-function Badge({ kind = "neutral", icon, children }: { kind?: "neutral" | "positive" | "attention" | "accent"; icon?: IconName; children: React.ReactNode }) {
-  return (
-    <span className={`stage-badge ${kind}`}>
-      {icon && <Icon name={icon} size={13} />}
-      {children}
-    </span>
-  );
-}
 
 function PanelTitle({ title, description, icon, extra }: { title: string; description: string; icon: IconName; extra?: React.ReactNode }) {
   return (
@@ -264,6 +251,25 @@ function SchemaDiagram({ tables }: { tables: TableRow[] }) {
   );
 }
 
+/** Measured facts the chat can be given with @ (read-only). Ids match `domain/discovery_cards.fact`. */
+function factList(guide: OnboardingGuide | null): { id: string; label: string }[] {
+  if (!guide) return [];
+  const found: { id: string; label: string }[] = [];
+  if ((guide.time_profile?.dates.length ?? 0) > 1) found.push({ id: "f:history", label: "The main table over time" });
+  for (const c of guide.categories ?? [])
+    if (/audit|source|origin|backfill|carried/i.test(c.column) && c.values.length > 1) found.push({ id: `f:rows:${c.column}`, label: `Where the rows come from (${c.column})` });
+  const seen = new Set<string>();
+  for (const v of guide.semantic_views ?? [])
+    for (const t of v.tables)
+      if (!seen.has(t.table)) {
+        seen.add(t.table);
+        found.push({ id: `f:vtable:${t.table}`, label: `${humanName(t.table)} (customer view)` });
+      }
+  for (const a of ["sales", "inventory", "purchasing", "shared"]) found.push({ id: `f:links:${a}`, label: `${cap(a)} links (customer views)` });
+  if ((guide.key_overlaps ?? []).length) found.push({ id: "f:overlap", label: "Cross-checks between areas" });
+  return found;
+}
+
 // ---------------------------------------------------------------------------------------------
 // The stage
 // ---------------------------------------------------------------------------------------------
@@ -283,9 +289,6 @@ export function DiscoveryStage({
 }) {
   const router = useRouter();
   const [section, setSection] = useState<Section>("guide");
-  const [dimension, setDimension] = useState<Dimension>("tables");
-  const [schemaFilter, setSchemaFilter] = useState("All");
-  const [search, setSearch] = useState("");
   // The conversation is saved in this browser per tab, until onboarding is done.
   const chat = useChatTurns(workspaceId, `discovery:${section}`);
   const [pending, setPending] = useState("");
@@ -307,7 +310,10 @@ export function DiscoveryStage({
   const totalIn = (key: Section) => groups[`g:section:${key}`]?.members.length ?? 0;
   const openCount = openIn(section);
   const everythingLocked = openCount === 0;
-  const mentions = mentioned.filter((id) => id in groups || cardRefs.some((c) => c.id === id));
+  const facts = useMemo(() => factList(guide), [guide]);
+  const mentions = mentioned.filter((id) => id in groups || cardRefs.some((c) => c.id === id) || facts.some((f) => f.id === id));
+  // Measured facts can be asked about, never changed: only cards count as changes.
+  const editable = mentions.filter((id) => !id.startsWith("f:"));
   const mention = (id: string) => setMentioned((cur) => (cur.includes(id) || cur.length >= 8 ? cur : [...cur, id]));
   const cards: CardCtx = {
     can,
@@ -358,24 +364,23 @@ export function DiscoveryStage({
     [out.tables, profiles],
   );
   const schemas = [...new Set(tables.map((t) => t.schema))];
-  const sum = (list: TableRow[]) => ({
-    tables: list.length,
-    columns: list.reduce((n, t) => n + t.columns.length, 0),
-    rows: list.reduce((n, t) => n + (t.rows ?? 0), 0),
-  });
-  const totals = sum(tables);
-  const breakdown = schemas.map((schema) => ({ schema, ...sum(tables.filter((t) => t.schema === schema)) }));
-  const value = (d: Dimension, n: number) => (d === "rows" ? compact.format(n) : integer.format(n));
   const joinCards = (out.tables as any[]).flatMap((t) =>
     (t.joins ?? []).map((item: any) => ({ id: cardId("join", item, t.table), owner: t.table as string, item })),
   );
   const gaps = (out.coverage as any[]).filter((c) => c.status !== "present");
   const issues = [...(out.quality_issues as any[])].sort((a, b) => "hml".indexOf(a.severity[0]) - "hml".indexOf(b.severity[0]));
-  const visible = tables.filter(
-    (t) =>
-      (schemaFilter === "All" || t.schema === schemaFilter) &&
-      `${t.table} ${t.kind} ${t.purpose} ${t.keys.join(" ")}`.toLowerCase().includes(search.trim().toLowerCase()),
-  );
+  const nameOf = makeNamer(guide?.semantic_views);
+  const tested = guide?.tested_joins ?? [];
+  const testOf = (owner: string, j: any) =>
+    tested.find(
+      (x) =>
+        x.source.toUpperCase().endsWith(`${String(owner).split(".").pop()}.${j.column}`.toUpperCase()) &&
+        x.target.toUpperCase().endsWith(`${String(j.references_table).split(".").pop()}.${j.references_column}`.toUpperCase()),
+    );
+  const viewCount = guide?.semantic_views?.length ?? 0;
+  const viewTables = new Set((guide?.semantic_views ?? []).flatMap((v) => v.tables.map((t) => String(t.base_table ?? t.table).split(".").pop()!.toUpperCase())));
+  const throughViews = [...viewTables].filter((t) => !tables.some((x) => x.table.split(".").pop()!.toUpperCase() === t)).length;
+  const ready = (out.coverage as any[]).filter((c) => c.status === "present").length;
 
   const push = (s: Section, ...more: AssistantTurn[]) => appendTurns(workspaceId, `discovery:${s}`, ...more);
 
@@ -397,7 +402,7 @@ export function DiscoveryStage({
 
   const rerun = (text: string, again?: { cards: string[] }) => {
     const s = section;
-    const cardIds = again?.cards ?? mentions;
+    const cardIds = (again?.cards ?? mentions).filter((id) => !id.startsWith("f:"));
     setPending(text);
     if (cardIds.length) {
       // Only the cards named with @ may change, and the team approves each change.
@@ -481,14 +486,23 @@ export function DiscoveryStage({
     <>
       <section className="stage-panel stage-content-panel discovery-workbench">
         <PanelTitle title="Discovery review" description="Review the scan findings and correct one section at a time." icon="database" />
-        <div className="discovery-semantic">
-          <div>
-            <strong>{guide?.profile.database ?? "Warehouse"} scanned</strong>
-            <p>
-              {tables.length} tables in {schemas.length} {schemas.length === 1 ? "schema" : "schemas"} · {out.cadence}
-            </p>
-          </div>
-          <Badge>{out.coverage.filter((c: any) => c.status === "present").length} of {out.coverage.length} areas present</Badge>
+        <div className="rv-scan">
+          <span className="rv-scan-db">
+            <Icon name="database" size={16} />
+            <b>{guide?.profile.database ?? "Warehouse"}</b>
+          </span>
+          <span>
+            <b>{tables.length}</b> {tables.length === 1 ? "table" : "tables"} read directly{schemas.length > 1 ? ` in ${schemas.length} schemas` : ""}
+          </span>
+          {viewCount > 0 && (
+            <span>
+              <b>{viewCount}</b> customer {viewCount === 1 ? "view" : "views"}
+              {throughViews > 0 && ` reaching ${throughViews} more tables`}
+            </span>
+          )}
+          <span>
+            <b>{ready}</b> of {out.coverage.length} kinds of data ready
+          </span>
         </div>
         <div className="stage-segmented discovery-sections" role="group" aria-label="Discovery sections">
           {(Object.keys(SECTIONS) as Section[]).map((key) => (
@@ -532,241 +546,135 @@ export function DiscoveryStage({
           )}
         </div>
 
-        {section === "guide" && <FullGuide out={out} guide={guide} cards={cards} />}
+        {section === "guide" && <FullGuide out={out} guide={guide} cards={cards} onResolve={() => setSection("gaps")} />}
 
         {section === "relationships" && (
-          <div className="discovery-relationships">
+          <div className="rv">
             <SchemaDiagram tables={tables} />
-            {joinCards.length ? (
-              (out.tables as any[])
-                .filter((t) => (t.joins ?? []).length)
-                .map((t) => (
-                  <div key={t.table} className="join-group">
-                    <div className="fg-head card-hover">
-                      <h6>
-                        {short(t.table)} relationships <small>{t.joins.length}</small>
-                      </h6>
-                      <GroupBar gid={`g:joins:${t.table}`} ctx={cards} />
-                    </div>
-                    <ul className="join-list">
-                      {(t.joins as any[]).map((item) => {
-                        const id = cardId("join", item, t.table);
-                        return (
-                          <li key={id} className={cn("discovery-review-item card-hover", unlocked.has(id) && "is-open")}>
-                            <div className="join-card-body">
-                              <div className="discovery-join">
-                                <code>
-                                  {short(t.table)}.{item.column}
-                                </code>
-                                <Icon name="arrow-right" size={15} />
-                                <code>
-                                  {short(item.references_table)}.{item.references_column}
-                                </code>
+            <Section icon="network" title="How the tables join" point="Mapping uses these joins to add names, locations and dates to every row. A wrong join gives wrong numbers, so check the low ones first.">
+              {joinCards.length ? (
+                (out.tables as any[])
+                  .filter((t) => (t.joins ?? []).length)
+                  .map((t) => (
+                    <div key={t.table} className="rv-block">
+                      <Sub title={nameOf(t.table)} note={`${t.joins.length} ${t.joins.length === 1 ? "join" : "joins"}`} tools={<GroupBar gid={`g:joins:${t.table}`} ctx={cards} />} />
+                      <div className="rv-items">
+                        {(t.joins as any[]).map((item) => {
+                          const id = cardId("join", item, t.table);
+                          const test = testOf(t.table, item);
+                          const conf = item.confidence === "high" ? "ready" : item.confidence === "low" ? "fail" : "partial";
+                          return (
+                            <article key={id} className={cn("rv-item rv-join card-hover", unlocked.has(id) && "is-open")}>
+                              <div className="rv-join-ends">
+                                <span>
+                                  <b>{nameOf(t.table)}</b>
+                                  <code>{item.column}</code>
+                                </span>
+                                <Icon name="arrow-right" size={16} />
+                                <span>
+                                  <b>{nameOf(item.references_table)}</b>
+                                  <code>{item.references_column}</code>
+                                </span>
                               </div>
-                              <Badge kind={item.confidence === "high" ? "positive" : item.confidence === "low" ? "attention" : "neutral"}>{cap(item.confidence)} confidence</Badge>
-                            </div>
-                            <CardBar id={id} ctx={cards} join />
-                            {editing === id && <CardEditor key={id} id={id} kind="join" item={item} ctx={cards} />}
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  </div>
-                ))
-            ) : (
-              <p className="stage-helper">No relationships were found between these tables.</p>
-            )}
-            <AddJoin ctx={cards} disabled={busy} />
+                              <div className="rv-join-facts">
+                                <Status tone={conf}>{cap(item.confidence)} confidence</Status>
+                                {test?.matched_pct != null ? (
+                                  <span className={cn("rv-fill", test.matched_pct < 90 && "low")} title="Share of values on the first table that find a match">
+                                    <i style={{ ["--p" as string]: `${test.matched_pct}%` }} />
+                                    {Math.round(test.matched_pct)}% of values match
+                                    {test.orphan_values ? ` · ${fmt.plural(test.orphan_values, "value")} without a match` : ""}
+                                  </span>
+                                ) : (
+                                  <span className="rv-muted">Not tested on the data</span>
+                                )}
+                              </div>
+                              <CardBar id={id} ctx={cards} join />
+                              {editing === id && <CardEditor key={id} id={id} kind="join" item={item} ctx={cards} />}
+                            </article>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))
+              ) : (
+                <p className="stage-helper">No joins were found between these tables.</p>
+              )}
+              <AddJoin ctx={cards} disabled={busy} />
+            </Section>
           </div>
         )}
 
         {section === "gaps" && (
-          <div className="discovery-gaps">
-            {gaps.map((g) => (
-              <article key={g.family} className={cn("discovery-review-item card-hover", unlocked.has(cardId("coverage", g)) && "is-open")}>
-                <div>
-                  <strong>
-                    {cap(words(g.family))} · {g.status}
-                  </strong>
-                  <p>{g.evidence}</p>
-                  <CardBar id={cardId("coverage", g)} ctx={cards} />
-                  {editing === cardId("coverage", g) && <CardEditor key={cardId("coverage", g)} id={cardId("coverage", g)} kind="coverage" item={g} ctx={cards} />}
-                </div>
-                <Badge kind="attention">{g.status === "missing" ? "Needs clarification" : "Partly covered"}</Badge>
-              </article>
-            ))}
-            {!gaps.length && <p className="stage-helper">Every standard area has a source.</p>}
-            {issues.map((q, i) => (
-              <article key={`i${i}`} className={cn("discovery-review-item card-hover", unlocked.has(cardId("issue", q)) && "is-open")}>
-                <div>
-                  <strong>{q.title}</strong>
-                  <p>{q.evidence}</p>
-                  <p>
-                    Impact: {q.impact} How we handle it: {q.suggested_handling}
-                  </p>
-                  <CardBar id={cardId("issue", q)} ctx={cards} />
-                  {editing === cardId("issue", q) && <CardEditor key={cardId("issue", q)} id={cardId("issue", q)} kind="issue" item={q} ctx={cards} />}
-                </div>
-                <Badge kind={q.severity === "high" ? "attention" : "neutral"}>{cap(q.severity)}</Badge>
-              </article>
-            ))}
-            {(out.questions as any[]).map((q, i) => (
-              <article key={`q${i}`} className={cn("discovery-review-item card-hover", unlocked.has(cardId("question", q)) && "is-open")}>
-                <div>
-                  <strong>{q.question}</strong>
-                  <p>
-                    For {q.to}: {q.why}
-                  </p>
-                  <CardBar id={cardId("question", q)} ctx={cards} />
-                  {editing === cardId("question", q) && <CardEditor key={cardId("question", q)} id={cardId("question", q)} kind="question" item={q} ctx={cards} />}
-                </div>
-                {q.to === "client" && can ? (
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    disabled={busy || sent.has(q.question)}
-                    onClick={() =>
-                      start(async () => {
-                        const res = await askClient(workspaceId, "discovery", q.question.slice(0, 120), `${q.question}\n\nWhy we ask: ${q.why}`);
-                        if (res.ok) setSent(new Set([...sent, q.question]));
-                        router.refresh();
-                      })
+          <div className="rv">
+            <Section
+              icon="message-square"
+              title="Questions"
+              count={out.questions.length}
+              point="Answers we need before mapping can be trusted. Send the customer's questions from here; they reply in the customer app."
+              tools={<GroupBar gid="g:questions" ctx={cards} />}
+            >
+              <div className="rv-items">
+                {(out.questions as any[]).map((q) => (
+                  <QuestionRow
+                    key={q.question}
+                    q={q}
+                    ctx={cards}
+                    action={
+                      q.to === "client" && can ? (
+                        <button
+                          type="button"
+                          className="btn btn-secondary"
+                          disabled={busy || sent.has(q.question)}
+                          onClick={() =>
+                            start(async () => {
+                              const res = await askClient(workspaceId, "discovery", q.question.slice(0, 120), `${q.question}\n\nWhy we ask: ${q.why}`);
+                              if (res.ok) setSent(new Set([...sent, q.question]));
+                              router.refresh();
+                            })
+                          }
+                        >
+                          <Icon name={sent.has(q.question) ? "check" : "send"} size={16} />
+                          <span>{sent.has(q.question) ? "Sent" : "Send to the customer"}</span>
+                        </button>
+                      ) : undefined
                     }
-                  >
-                    <Icon name={sent.has(q.question) ? "check" : "message-square"} size={17} />
-                    <span>{sent.has(q.question) ? "Sent" : "Ask customer"}</span>
-                  </button>
-                ) : (
-                  <Badge>{q.to === "team" ? "For the team" : "For the client"}</Badge>
-                )}
-              </article>
-            ))}
+                  />
+                ))}
+                {!out.questions.length && <p className="stage-helper">No open questions.</p>}
+              </div>
+            </Section>
+            <Section icon="target" title="Data we do not fully have" count={gaps.length} point="Kinds of data that are only partly there or not found. Metrics that need them stay off until they are resolved.">
+              {gaps.length ? (
+                <ul className="rv-covs">
+                  {gaps.map((g) => (
+                    <CoverageRow key={g.family} c={g} ctx={cards} />
+                  ))}
+                </ul>
+              ) : (
+                <p className="stage-helper">Every kind of data has a source.</p>
+              )}
+            </Section>
+            <Section
+              icon="danger-circle"
+              title="Issues that change the numbers"
+              count={issues.filter((q) => q.severity !== "low").length}
+              point="High and medium data issues, each with how mapping handles it. Check the handling is right."
+            >
+              <div className="rv-items">
+                {issues
+                  .filter((q) => q.severity !== "low")
+                  .map((q) => (
+                    <IssueRow key={q.title} q={q} ctx={cards} />
+                  ))}
+              </div>
+              {issues.some((q) => q.severity === "low") && (
+                <p className="stage-helper">{issues.filter((q) => q.severity === "low").length} low issues are in the data guide, under their area.</p>
+              )}
+            </Section>
           </div>
         )}
-
       </section>
 
-      <section className="stage-panel stage-content-panel source-coverage">
-        <PanelTitle
-          title="Source coverage"
-          description="Compare the sources profiled in this scan. Select a schema to narrow the inventory below."
-          icon="database"
-          extra={<Badge>{schemas.length} {schemas.length === 1 ? "schema" : "schemas"}</Badge>}
-        />
-        <dl className="source-totals">
-          {(Object.keys(DIMENSIONS) as Dimension[]).map((k) => (
-            <div key={k}>
-              <dt>{DIMENSIONS[k]}</dt>
-              <dd title={integer.format(totals[k])}>{value(k, totals[k])}</dd>
-            </div>
-          ))}
-        </dl>
-        <div className="source-profile">
-          <div className="source-profile-top">
-            <h4>Profile by source</h4>
-            <div className="stage-segmented" role="group" aria-label="Source breakdown">
-              {(Object.keys(DIMENSIONS) as Dimension[]).map((k) => (
-                <button key={k} type="button" aria-pressed={dimension === k} onClick={() => setDimension(k)}>
-                  {DIMENSIONS[k]}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="source-distribution" role="img" aria-label={`${DIMENSIONS[dimension]} by schema. ${breakdown.map((b) => `${b.schema} ${integer.format(b[dimension])}`).join(", ")}`}>
-            {breakdown.map((b) => (
-              <span key={b.schema} style={{ ["--source-share" as string]: `${(100 * b[dimension]) / (totals[dimension] || 1)}%` }} />
-            ))}
-          </div>
-          <div className="source-legend" role="group" aria-label="Filter tables by source">
-            {breakdown.map((b) => (
-              <button
-                key={b.schema}
-                className="source-legend-item"
-                type="button"
-                aria-controls="stage-table-inventory"
-                aria-pressed={schemaFilter === b.schema}
-                onClick={() => setSchemaFilter(schemaFilter === b.schema ? "All" : b.schema)}
-              >
-                <i aria-hidden="true" />
-                <span>
-                  <strong>{b.schema}</strong>
-                  <small>{b.tables} tables</small>
-                </span>
-                <b title={integer.format(b[dimension])}>{value(dimension, b[dimension])}</b>
-                <Icon name="chevron-right" size={15} />
-              </button>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section className="stage-panel stage-content-panel" id="stage-table-inventory">
-        <PanelTitle title="Table inventory" description="Open a table to see its key, purpose and example columns." icon="table" />
-        <div className="stage-table-tools">
-          <div className="stage-filters" aria-label="Filter results">
-            {["All", ...schemas].map((v) => (
-              <button
-                key={v}
-                type="button"
-                aria-pressed={schemaFilter === v}
-                className={`stage-filter${schemaFilter === v ? " selected" : ""}`}
-                onClick={() => setSchemaFilter(v)}
-              >
-                {v}
-              </button>
-            ))}
-          </div>
-          <label className="stage-search">
-            <Icon name="search" size={15} />
-            <input type="search" aria-label="Search tables" placeholder="Search tables" value={search} onChange={(e) => setSearch(e.target.value)} />
-          </label>
-        </div>
-        <div className="stage-table-scroll">
-          <table className="stage-table">
-            <thead>
-              <tr>
-                <th scope="col">Table</th>
-                <th scope="col">Kind</th>
-                <th scope="col">Rows</th>
-                <th scope="col">Columns</th>
-              </tr>
-            </thead>
-            <tbody>
-              {visible.length ? (
-                visible.map((t) => (
-                  <tr key={t.table}>
-                    <td>
-                      <details className="stage-table-detail">
-                        <summary>
-                          <Icon name="table" size={16} />
-                          <strong>{short(t.table)}</strong>
-                          <Icon name="chevron-down" size={13} />
-                        </summary>
-                        <p>{t.purpose}</p>
-                        <small>Key</small> <code>{t.keys.join(", ") || "none found"}</code>
-                        <p>
-                          <small>Example fields</small>
-                          <br />
-                          <code>{t.columns.slice(0, 8).map((c) => c.column).join(", ")}</code>
-                        </p>
-                      </details>
-                    </td>
-                    <td>{cap(t.kind)}</td>
-                    <td className="stage-mono">{integer.format(t.rows)}</td>
-                    <td className="stage-mono">{t.columns.length}</td>
-                  </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan={4} className="stage-table-empty">
-                    No tables match your search.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
       <section className="stage-panel stage-content-panel discovery-assistant">
         <EngineerChat
           scope={`Discovery / ${SECTIONS[section]}`}
@@ -782,10 +690,10 @@ export function DiscoveryStage({
           rerun={
             can
               ? {
-                  disabled: busy || (!mentions.length && everythingLocked),
-                  locked: !mentions.length && everythingLocked,
-                  label: mentions.length ? `Suggest changes to ${mentions.length} ${mentions.length === 1 ? "mention" : "mentions"}` : undefined,
-                  hint: mentions.length
+                  disabled: busy || (!editable.length && everythingLocked),
+                  locked: !editable.length && everythingLocked,
+                  label: editable.length ? `Suggest changes to ${editable.length} ${editable.length === 1 ? "mention" : "mentions"}` : undefined,
+                  hint: editable.length
                     ? "Only the cards you mention can change, and only the unlocked ones. You approve every change."
                     : everythingLocked
                       ? "Everything in this tab is locked. You can still ask questions."
@@ -798,6 +706,7 @@ export function DiscoveryStage({
               .filter(([gid]) => !gid.startsWith("g:section:"))
               .map(([gid, g]) => ({ id: gid, label: `${g.label} (${g.members.length})`, kind: "block", locked: !g.members.some((m) => unlocked.has(m)) })),
             ...cardRefs.map((c) => ({ id: c.id, label: c.label, kind: c.kind, locked: c.locked })),
+            ...facts.map((f) => ({ id: f.id, label: f.label, kind: "fact", locked: false, note: "Measured from the warehouse: read-only" })),
           ]}
           mentions={mentions}
           onMentions={setMentioned}

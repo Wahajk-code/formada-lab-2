@@ -280,8 +280,10 @@ def checks_mapping(out: dict[str, Any], checks: dict[str, Any]) -> list[dict[str
     by = checks.get("archetypes", {})
     mapped = [a for a in out.get("archetypes", []) if a.get("status") != "unmappable"]
     failing = [a["archetype"] for a in mapped if not by.get(a["archetype"], {}).get("ok")]
+    # In the review lab the queries are not run, so there is no row count to judge.
+    not_run = [a["archetype"] for a in mapped if by.get(a["archetype"], {}).get("lab_not_run")]
     rows = {a["archetype"]: by.get(a["archetype"], {}).get("rows") or 0
-            for a in mapped if a["archetype"] not in failing}  # fmt: skip
+            for a in mapped if a["archetype"] not in failing and a["archetype"] not in not_run}  # fmt: skip
     empty = [k for k, n in rows.items() if n == 0]
     filters = [f for a in mapped for f in a.get("filters", [])]
     low_fill = []
@@ -303,8 +305,10 @@ def checks_mapping(out: dict[str, Any], checks: dict[str, Any]) -> list[dict[str
         _c("tests", not failing, "Every link passes its live test",
            "All pass." if not failing else f"Failing: {', '.join(failing)} (approve skips them).",
            "Open the link in Expert view, fix the SQL and re-check."),
-        _c("rows", not empty and bool(rows), "Row count in range",
-           ", ".join(f"{k} {n:,}" for k, n in rows.items()) or "Nothing mapped.",
+        _c("rows", (not empty and bool(rows)) or (not rows and bool(not_run)), "Row count in range",
+           ", ".join(f"{k} {n:,}" for k, n in rows.items())
+           or ("Not run in the review lab: the row counts come from their warehouse."
+               if not_run else "Nothing mapped."),
            "A link returns no rows: check its filters."),
         _c("filters", bool(filters), "Fake or restored rows excluded",
            f"{len(filters)} filter(s) applied." if filters else "No filter on any link.",
