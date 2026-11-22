@@ -121,7 +121,7 @@ def _step_view(s: fl.Step) -> dict[str, Any]:
     return {
         "key": s.key, "label": s.label, "does": s.does, "scope": s.scope, "reads": list(s.reads),
         "writes": list(s.writes), "ai": s.ai, "on_error": s.on_error, "failure": s.failure,
-        "timeout_s": s.timeout_s,
+        "skips": s.skips, "timeout_s": s.timeout_s,
     }  # fmt: skip
 
 

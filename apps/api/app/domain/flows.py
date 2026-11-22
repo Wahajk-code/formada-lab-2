@@ -36,6 +36,7 @@ class Step:
     # What happens when the step still fails after its tries.
     on_error: Literal["fail_run", "fail_step", "log"] = "fail_step"
     failure: str = ""  # that, in words
+    skips: str = ""  # what a "skipped" or "busy" answer means here, in words (not an error)
 
 
 @dataclass(frozen=True)
@@ -80,7 +81,7 @@ CREATE_RUN = Step(
     "create_run", "Open a run",
     f"Starts a run for the slot. A workspace runs at most {MAX_RUNS_PER_TENANT} at once; a repeat of the same slot does nothing.",
     reads=("run",), writes=("run",),
-    failure="No run is opened and the workspace is skipped until the next tick.",
+    skips="Already has a run for this slot, or is at its limit of 2: this workspace is skipped.", failure="No run is opened and the workspace is skipped until the next tick.",
     on_error="log",
 )  # fmt: skip
 METRICS = Step(
@@ -94,25 +95,25 @@ SIGNALS = Step(
     "signals_detect", "Find signals",
     "Deterministic code compares each role's numbers with their usual level and picks what is worth a card.",
     scope="role", reads=("metric_snapshot", "role_metric"), writes=("signal", "run_step"),
-    failure="This role is marked failed. Other roles carry on.",
+    skips="No signal worth a card: this role ends quietly.", failure="This role is marked failed. Other roles carry on.",
 )  # fmt: skip
 PROMPT = Step(
     "prompt_build", "Build the prompt",
     "Puts the role's chosen signals, its past feedback and its rules into the request for the AI.",
     scope="role", reads=("signal", "feedback"), writes=("run_step",),
-    failure="This role is marked failed. Other roles carry on.",
+    skips="Nothing selected to write about: this role ends quietly.", failure="This role is marked failed. Other roles carry on.",
 )  # fmt: skip
 LLM = Step(
     "llm_generate", "Write the cards",
     "The AI writes ranked cards from the signals. It sees numbers only, never rows.",
     scope="role", reads=("run_step",), writes=("llm_call_log", "run_step"), ai=True, timeout_s=300,
-    failure="This role is marked failed. Other roles carry on.",
+    skips="No prompt was built: this role ends quietly.", failure="This role is marked failed. Other roles carry on.",
 )  # fmt: skip
 INGEST = Step(
     "cards_ingest", "Check and save the cards",
     "Code checks every card (numbers must match the signals), then saves the ones that pass and logs the rest.",
     scope="role", reads=("run_step", "signal"), writes=("insight_card", "card_rejection", "run_step"),
-    failure="This role is marked failed. Other roles carry on.",
+    skips="Nothing came back to save: this role ends quietly.", failure="This role is marked failed. Other roles carry on.",
 )  # fmt: skip
 ROLLUP = Step(
     "rollup", "Refresh the roll-up",
@@ -130,7 +131,7 @@ DAILY_PLAN = Step(
     "daily_plan", "Plan today's roles",
     "Picks the roles to run today: daily-cadence roles and roles whose daily check crossed its alert level.",
     reads=("role_metric", "role_node", "metric_snapshot"), writes=("run_step",),
-    on_error="fail_run", failure="The run is marked failed.",
+    on_error="fail_run", skips="Nobody needs a run today: the run closes with no roles.", failure="The run is marked failed.",
 )  # fmt: skip
 MEASURE = Step(
     "outcomes_measure", "Measure outcomes",
@@ -296,3 +297,60 @@ def key_digest(tenant_id: object, slot_iso: str, token: str) -> str:
 def key_feedback(tenant_id: object, token: str) -> str:
     """`token` is the feedback id when someone just gave feedback, else the date and execution."""
     return f"{tenant_id}:feedback_compile:{token}"
+
+
+# ---- what a node shows while a run is going (for the monitor) -----------------------------------
+
+ROLE_STATUSES = ("ok", "skipped", "failed", "running")
+
+
+def node_state(statuses: list[str], expected: int, run_running: bool) -> dict[str, int | str]:
+    """What one step shows for one run, from the status of each of its rows.
+
+    A workspace-level step has one row (`expected` 1); a role step has one row per role (`expected`
+    is how many roles the run covers). States: `waiting` (not started, the run is going), `none`
+    (never reached, the run is over), `running` (a row is being worked on right now), `progress`
+    (some roles are through, the rest have not started yet), `ok`, `skipped` (all rows skipped),
+    `partial` (some roles failed, some did not) and `failed`."""
+    counts = {s: statuses.count(s) for s in ROLE_STATUSES}
+    done = counts["ok"] + counts["skipped"] + counts["failed"]
+    total = max(expected, len(statuses))
+    if not statuses:
+        state = "waiting" if run_running else "none"
+    elif counts["running"]:
+        state = "running"
+    elif run_running and done < total:
+        state = "progress"
+    elif counts["failed"] and done == counts["failed"]:
+        state = "failed"
+    elif counts["failed"]:
+        state = "partial"
+    elif counts["ok"]:
+        state = "ok"
+    else:
+        state = "skipped"
+    return {"state": state, "done": done, "total": total, **counts}
+
+
+def run_nodes(
+    flow: Flow, run_status: str, rows: list[tuple[str | None, str, str]], roles_expected: int
+) -> dict[str, dict[str, int | str]]:
+    """Every step of a run-flow with its state. `rows` are (role id or None, step key, status) as
+    recorded. The steps that leave no row of their own are read from the run: finding the workspace
+    and opening the run happened if the run exists; closing it happened once the run is over."""
+    running = run_status == "running"
+    nodes: dict[str, dict[str, int | str]] = {}
+    for step in flow.steps:
+        if step.key in ("due_tenants", "create_run"):
+            nodes[step.key] = node_state(["ok"], 1, running)
+        elif step.key == "finish_run":
+            end = "failed" if run_status == "failed" else "ok"
+            nodes[step.key] = node_state([] if running else [end], 1, running)
+            if run_status == "partial":
+                nodes[step.key]["state"] = "partial"
+        else:
+            mine = [status for _, key, status in rows if key == step.key]
+            nodes[step.key] = node_state(
+                mine, roles_expected if step.scope == "role" else 1, running
+            )
+    return nodes

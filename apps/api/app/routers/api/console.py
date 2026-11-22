@@ -20,6 +20,7 @@ from app.services import (
     console,
     console_ai,
     custom_metrics,
+    flow_monitor,
     llm_settings,
     onboarding,
     onboarding_collab,
@@ -150,6 +151,20 @@ class FlowRunIn(BaseModel):
 async def flows_overview(staff: CurrentStaff) -> dict[str, Any]:
     """Every workflow with its steps, tables, schedule, pause state and latest runs."""
     return await scheduler.overview()
+
+
+@router.get("/flows/{flow_key}/board")
+async def flow_board(flow_key: str, staff: CurrentStaff) -> dict[str, Any]:
+    """Every workspace with the latest run of this flow and how far it has got."""
+    return await flow_monitor.board(flow_key)
+
+
+@router.get("/flows/runs/{tenant_id}/{run_id}")
+async def flow_run_state(
+    tenant_id: uuid.UUID, run_id: uuid.UUID, staff: CurrentStaff
+) -> dict[str, Any]:
+    """One run drawn on its flow: the state of every step and of every role."""
+    return await flow_monitor.run_state(tenant_id, run_id)
 
 
 def _flow(flow_key: str) -> fl.Flow:

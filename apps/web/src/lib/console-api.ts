@@ -69,6 +69,7 @@ export type FlowStep = {
   ai: boolean;
   on_error: "fail_run" | "fail_step" | "log";
   failure: string;
+  skips: string;
   timeout_s: number;
 };
 export type FlowExecution = { trigger: string; status: string; started_at: string; ended_at: string | null; workspaces: number; note: string };
@@ -88,6 +89,24 @@ export type FlowView = {
   writes: string[];
   history: FlowExecution[];
   runs: FlowRun[];
+};
+/** What one step shows for one run. `none`: never reached; `waiting`: not started yet. */
+export type NodeState = "waiting" | "none" | "running" | "progress" | "ok" | "skipped" | "partial" | "failed";
+export type NodeInfo = { state: NodeState; done: number; total: number; ok: number; skipped: number; failed: number; running: number };
+export type RunInfo = { id: string; type: string; status: string; started_at: string; ended_at: string | null; error: string | null; by_hand: boolean };
+export type BoardRow = {
+  workspace: { id: string; name: string };
+  run: RunInfo | null;
+  progress: { steps_done: number; steps_total: number; current: string | null; problems: number; roles_total: number; roles_done: number } | null;
+};
+export type FlowBoardData = { flow: string; workspaces: BoardRow[] };
+export type RunState = {
+  flow: string;
+  workspace: { id: string; name: string };
+  run: RunInfo;
+  roles_expected: number;
+  nodes: Record<string, NodeInfo>;
+  roles: { id: string; title: string; steps: Record<string, string> }[];
 };
 export type FlowsOverview = { enabled: boolean; lab: boolean; tries: number; wait_s: number; max_runs_per_workspace: number; now: string; flows: FlowView[] };
 
@@ -802,6 +821,8 @@ export const consoleApi = {
     request<RunDetail>(`/workspaces/${id}/runs/${runId}`),
   runNow: (id: string) => send("POST", `/workspaces/${id}/run`),
   flows: () => request<FlowsOverview>("/flows"),
+  flowBoard: (key: string) => request<FlowBoardData>(`/flows/${key}/board`),
+  flowRunState: (tenantId: string, runId: string) => request<RunState>(`/flows/runs/${tenantId}/${runId}`),
   pauseFlow: (key: string) => send("POST", `/flows/${key}/pause`, {}),
   resumeFlow: (key: string) => send("POST", `/flows/${key}/resume`, {}),
   runFlow: (key: string, tenantId: string | null) => send("POST", `/flows/${key}/run`, { tenant_id: tenantId }),
