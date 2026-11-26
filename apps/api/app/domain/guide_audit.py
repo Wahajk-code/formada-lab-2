@@ -8,6 +8,7 @@ measured, and a non-technical reader can follow it.
 import re
 from typing import Any
 
+from app.domain import discovery_benchmark as bench
 from app.domain import onboarding as ob
 
 SENTENCE = re.compile(r"[.!?]+(?:\s+|$)")
@@ -153,6 +154,15 @@ def audit(out: dict[str, Any], profile: dict[str, Any]) -> dict[str, Any]:
     qs = out.get("questions", [])
     qok = len(qs) <= 6 and all(q.get("why") for q in qs)
     items.append(_item("Few, justified questions", 5 if qok else 2, 5, f"{len(qs)} questions"))
+
+    if mark := bench.run(out, profile):
+        # Obvious choices code can work out (main table, areas, real measures, rhythm). A made-up
+        # thing costs the whole item.
+        points = 0.0 if mark["critical"] else 10 * mark["score"] / 100
+        items.append(
+            _item("Obvious choices are right", points, 10,
+                  f"{mark['passed']} of {mark['total']} checks, {mark['critical']} made up")
+        )  # fmt: skip
 
     total = sum(i["points"] for i in items)
     maximum = sum(i["max"] for i in items)

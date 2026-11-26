@@ -942,6 +942,14 @@ export function StepView({
             starters={["Which roles will not get cards, and why?", "Explain this org web in plain words", "Simplify: who owns what?"]}
           />
         )}
+        {!locked && stepKey === "connect" && state.connection?.status === "ok" && (
+          <StepChat
+            workspaceId={state.workspace.id}
+            stepName="connect"
+            can={false}
+            starters={["What can this connection read for sales?", "Is anything missing for stock or purchasing?", "Which views are not linked to each other?"]}
+          />
+        )}
         {!locked && stepKey === "trial" && (
           <StepChat
             workspaceId={state.workspace.id}

@@ -21,10 +21,11 @@ from app.core.db import global_tx, tenant_tx
 from app.core.errors import Conflict, Invalid, NotFound
 from app.core.logging import get_logger
 from app.core.settings import get_settings
+from app.domain import discovery_benchmark as benchmark
 from app.domain import discovery_cards as dc
+from app.domain import mapping_benchmark, org_import, semantic
 from app.domain import onboarding as ob
 from app.domain import onboarding_flow as flow
-from app.domain import org_import, semantic
 from app.domain import runs as run_rules
 from app.domain.config import SCHEMA, coerce
 from app.domain.llm import estimated_cost, validate_choice
@@ -337,11 +338,19 @@ async def save_connection(
 
 def _with_links(row: OnboardingStep) -> dict[str, Any] | None:
     """A discovery answer always carries its links (older ones get them from their profile)."""
+    if row.step == "mapping" and row.output:
+        given = row.input or {}
+        marks = mapping_benchmark.run(row.output, given.get("profile"), given.get("archetypes"))
+        return {**row.output, "context_benchmark": marks}
     if row.step != "discovery" or not row.output:
         return row.output
     profile = (row.input or {}).get("profile")
     full = dc.with_links(row.output, profile)
-    return {**full, "link_checks": dc.link_checks(full, profile)}
+    return {
+        **full,
+        "link_checks": dc.link_checks(full, profile),
+        "context_benchmark": benchmark.run(full, profile),
+    }
 
 
 def _step_view(row: OnboardingStep) -> dict[str, Any]:

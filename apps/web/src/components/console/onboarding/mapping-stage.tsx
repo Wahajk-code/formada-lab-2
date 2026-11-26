@@ -6,6 +6,7 @@ import { useMemo, useRef, useState, useTransition } from "react";
 
 import { askWorkspaceAI, confirmMappingLink, editProposalItem, reviseProposalItem, unlockProposalItem } from "@/app/console-actions";
 import { ChatJump } from "@/components/console/onboarding/chat-jump";
+import { ContextBenchmark } from "@/components/console/onboarding/context-benchmark";
 import { EngineerChat } from "@/components/console/onboarding/engineer-chat";
 import { WORDS } from "@/components/console/onboarding/mapping-guide";
 import { breakable, FactBar, fmt, Fold, humanDates, humanName, Lines, Section, shortName, Status, Sub, type Tone } from "@/components/console/onboarding/review-kit";
@@ -285,6 +286,8 @@ export function MappingStage({ step, guide, workspaceId, can, actions }: { step:
               </div>
             </div>
           </section>
+
+          <ContextBenchmark subject="mapping" benchmark={out.context_benchmark} onExplain={(q) => ask(q, { history: turns, cards: [], attached: [] })} />
 
           <Section icon="target" title="Shapes at a glance" point="What each standard shape reads from, and what it still needs. Open a shape for its fields.">
             <div className="rv-tiles">

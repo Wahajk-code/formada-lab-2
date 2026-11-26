@@ -8,7 +8,7 @@ import { PRESETS, type PresetName } from "@/components/console/onboarding/rules-
 import { Status } from "@/components/console/onboarding/review-kit";
 import { Icon } from "@/components/ui/icon";
 import type { CardFull } from "@/lib/client-api";
-import type { PreviewResult } from "@/lib/console-api";
+import type { CardQuality, PreviewResult } from "@/lib/console-api";
 import { whyCard } from "@/lib/trial-why";
 import { cn } from "@/lib/utils";
 
@@ -24,7 +24,7 @@ const RATINGS = [
  * more like it), and a rating. Not relevant and Cannot act propose a rule that waits in Rule review; they
  * change nothing by themselves.
  */
-export function TrialCardReview({ workspaceId, card, can }: { workspaceId: string; card: CardFull; can: boolean }) {
+export function TrialCardReview({ workspaceId, card, can }: { workspaceId: string; card: CardFull & { quality?: CardQuality }; can: boolean }) {
   const why = whyCard(card);
   const [pending, start] = useTransition();
   const [note, setNote] = useState("");
@@ -55,9 +55,24 @@ export function TrialCardReview({ workspaceId, card, can }: { workspaceId: strin
     <details className="stage-disclosure trial-review">
       <summary>
         <span>Why this card, and rate it</span>
+        {card.quality && (
+          <span className={cn("trial-quality", card.quality.score < 80 && "is-low")} title="How easy this card is to read and act on, scored by code. It does not judge whether the card is right.">
+            Readability {card.quality.score}
+          </span>
+        )}
         <Icon name="chevron-down" size={15} />
       </summary>
       <div className="trial-review-body">
+        {card.quality && card.quality.problems.length > 0 && (
+          <>
+            <p className="rv-muted">To make it easier to read:</p>
+            <ul className="rv-list">
+              {card.quality.problems.map((p) => (
+                <li key={p}>{p}</li>
+              ))}
+            </ul>
+          </>
+        )}
         <ul className="rv-list">
           {why.reasons.map((r) => (
             <li key={r}>{r}</li>

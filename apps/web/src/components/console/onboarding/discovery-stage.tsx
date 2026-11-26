@@ -21,6 +21,7 @@ import { ChatJump } from "@/components/console/onboarding/chat-jump";
 import { appendTurns, truncateTurns, useChatTurns } from "@/lib/chat-store";
 import { contextOf, idsToSend, missingNote, questionWithMentions, type ChatCommand } from "@/lib/mentions";
 import { cardId, cardList, groupIndex, type CardSuggestion } from "@/lib/discovery-cards";
+import { ContextBenchmark } from "@/components/console/onboarding/context-benchmark";
 import { ViewDiagram } from "@/components/console/onboarding/view-diagram";
 import { EngineerChat } from "@/components/console/onboarding/engineer-chat";
 import { cn } from "@/lib/utils";
@@ -448,7 +449,12 @@ export function DiscoveryStage({
           )}
         </div>
 
-        {section === "guide" && <FullGuide out={out} guide={guide} cards={cards} onResolve={() => setSection("gaps")} />}
+        {section === "guide" && (
+          <>
+            <ContextBenchmark benchmark={out.context_benchmark} cards={cards} />
+            <FullGuide out={out} guide={guide} cards={cards} onResolve={() => setSection("gaps")} />
+          </>
+        )}
 
         {section === "relationships" && (
           <div className="rv">

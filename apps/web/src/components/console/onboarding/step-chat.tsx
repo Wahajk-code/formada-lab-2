@@ -22,6 +22,7 @@ const KIND = {
   org: { prefix: "r:", item: "role", items: "roles", scope: "Org Web" },
   metrics: { prefix: "x:", item: "measure", items: "measures", scope: "Metrics" },
   trial: { prefix: "k:", item: "card", items: "cards", scope: "Trial run" },
+  connect: { prefix: "v:", item: "view", items: "views", scope: "Connect" },
 } as const;
 
 export function StepChat({
@@ -33,7 +34,7 @@ export function StepChat({
   runId,
 }: {
   workspaceId: string;
-  stepName: "org" | "metrics" | "trial";
+  stepName: "org" | "metrics" | "trial" | "connect";
   step?: OnboardingStep | undefined;
   can: boolean;
   starters: string[];
@@ -68,7 +69,9 @@ export function StepChat({
         ? ((out?.roles ?? []) as any[]).map((r) => ({ id: `r:${r.ref}`, label: String(r.title), kind: "role", locked: false, note: "Given to the chat as context" }))
         : stepName === "metrics"
           ? ((out?.metrics ?? []) as any[]).map((m) => ({ id: `x:${m.key}`, label: String(m.name ?? m.key), kind: "measure", locked: false, note: "Given to the chat as context" }))
-          : trialCards.map((c) => ({ id: `k:${c.id}`, label: `${c.role}: ${c.title}`, kind: "card", locked: false, note: "Given to the chat as context" })),
+          : stepName === "connect"
+            ? []
+            : trialCards.map((c) => ({ id: `k:${c.id}`, label: `${c.role}: ${c.title}`, kind: "card", locked: false, note: "Given to the chat as context" })),
     [out, stepName, trialCards],
   );
   const mentions = mentioned.filter((id) => mentionables.some((m) => m.id === id));
@@ -141,14 +144,14 @@ export function StepChat({
         turns={turns}
         pending=""
         thinking={thinking}
-        emptyTitle={stepName === "org" ? "What would you like to check on the org web?" : stepName === "metrics" ? "What would you like to check on the metrics?" : "What would you like to check on the trial?"}
-        intro={stepName === "trial" ? "Ask why a card was written, or press @ to attach one. Ask me to explain or simplify it." : `Ask about a ${kind.item}, or press @ to attach one. Ask me to explain or simplify, or start with /change to change it.`}
-        placeholder={stepName === "org" ? "Ask about a role…" : stepName === "metrics" ? "Ask about a measure…" : "Ask about a card…"}
+        emptyTitle={stepName === "org" ? "What would you like to check on the org web?" : stepName === "metrics" ? "What would you like to check on the metrics?" : stepName === "connect" ? "What would you like to know about this connection?" : "What would you like to check on the trial?"}
+        intro={stepName === "trial" ? "Ask why a card was written, or press @ to attach one. Ask me to explain or simplify it." : stepName === "connect" ? "Ask what the connection can read: which views, fields and measures, how they link, and what is missing for sales, stock or purchasing." : `Ask about a ${kind.item}, or press @ to attach one. Ask me to explain or simplify, or start with /change to change it.`}
+        placeholder={stepName === "org" ? "Ask about a role…" : stepName === "metrics" ? "Ask about a measure…" : stepName === "connect" ? "Ask about the connection…" : "Ask about a card…"}
         starters={starters}
         onAsk={(text) => ask(text)}
         onClear={clear}
         onResend={resend}
-        onChange={stepName === "trial" ? undefined : change}
+        onChange={stepName === "trial" || stepName === "connect" ? undefined : change}
         context={context}
         onDropContext={(id) => setDropped((d) => [...d, id])}
         mentionables={mentionables}

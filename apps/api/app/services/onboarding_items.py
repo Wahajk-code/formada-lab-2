@@ -20,6 +20,7 @@ from sqlalchemy import select
 from app.core.db import tenant_tx
 from app.core.errors import Conflict, Invalid, NotFound
 from app.core.logging import get_logger
+from app.domain import discovery_benchmark as benchmark
 from app.domain import discovery_cards as dc
 from app.domain import onboarding as ob
 from app.domain.config import SCHEMA, coerce
@@ -736,6 +737,8 @@ async def card_context(tenant_id: uuid.UUID, ids: list[str]) -> list[dict[str, A
     out = dc.with_links(row.output, profile)
     # Facts are what the scan measured: read-only, given to the chat as they are.
     facts = [f for i in ids if dc.is_fact(i) and (f := dc.fact(profile, i))]
+    if "f:benchmark" in ids and (marks := benchmark.run(out, profile)):
+        facts.append({"fact": "f:benchmark", **marks})
     try:
         ids = dc.expand(out, [i for i in ids if not dc.is_fact(i)])
     except ValueError as exc:

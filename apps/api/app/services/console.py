@@ -16,10 +16,10 @@ from sqlalchemy import delete, func, select
 
 from app.core.db import global_tx, tenant_tx
 from app.core.errors import Invalid, NotFound
+from app.domain import card_quality, scorecard
 from app.domain import config as cfg
 from app.domain import feedback as fb_rules
 from app.domain import llm as llm_catalog
-from app.domain import scorecard
 from app.models import (
     AuditLog,
     CardRejection,
@@ -406,7 +406,10 @@ async def run_detail(tenant_id: uuid.UUID, run_id: uuid.UUID) -> dict[str, Any]:
             {"role": name(r.role_node_id), "title": r.payload.get("title"), "reasons": r.reasons}
             for r in rejections
         ],
-        "cards": [card_view(c, name(c.role_node_id)) for c in cards],
+        "cards": [
+            {**(v := card_view(c, name(c.role_node_id))), "quality": card_quality.score_card(v)}
+            for c in cards
+        ],
     }
     view["scorecard"] = scorecard.score_run(view)
     return view

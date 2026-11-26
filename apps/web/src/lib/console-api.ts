@@ -294,8 +294,11 @@ export type RunDetail = {
     zscore: number | null;
   }[];
   rejections: { role: string; title: string | null; reasons: string[] }[];
-  cards: CardFull[];
+  cards: (CardFull & { quality?: CardQuality })[];
 };
+
+/** How easy a card is to read and act on, scored by code: 100 is best. */
+export type CardQuality = { score: number; grade: number; problems: string[] };
 
 export type Setting = {
   key: string;

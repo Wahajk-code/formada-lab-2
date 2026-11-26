@@ -953,3 +953,19 @@ button.rv-tile { width: 100%; text-align: left; font: inherit; color: inherit; c
 .trial-rate-note { display: grid; gap: 6px; max-width: 560px; }
 .trial-rate-note input { padding: 8px 10px; border: 1px solid var(--fd-border); border-radius: 10px; font: inherit; }
 .rv-total td { border-top: 2px solid var(--fd-border); }
+
+/* ---- discovery context benchmark ---- */
+.bm-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.bm-bar { height: 6px; border-radius: 99px; background: var(--rv-line, #e7e5ee); overflow: hidden; margin: 10px 0 12px; }
+.bm-fill { display: block; height: 100%; border-radius: 99px; background: #2f8f5b; transition: width 0.4s ease; }
+.bm-fill.bm-mostly { background: #c58a1b; }
+.bm-fill.bm-doubtful { background: #c2410c; }
+.bm-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.bm-list li { display: grid; gap: 2px; padding: 10px 12px; border-radius: 10px; font-size: 13.5px; line-height: 1.45; }
+.bm-list li span { color: var(--rv-muted, #6b6880); }
+.bm-fail { background: rgba(194, 65, 12, 0.07); border: 1px solid rgba(194, 65, 12, 0.25); }
+.bm-pass { background: rgba(47, 143, 91, 0.06); }
+.bm-group { margin: 6px 0 6px; font-size: 11.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--rv-muted, #6b6880); }
+.bm-list li .card-explain { justify-self: start; }
+.trial-quality { margin-left: auto; margin-right: 8px; font-size: 12px; color: var(--rv-muted, #6b6880); }
+.trial-quality.is-low { color: #c2410c; font-weight: 600; }
