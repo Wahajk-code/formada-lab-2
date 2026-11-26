@@ -18,7 +18,7 @@ from app.domain import grounding
 from app.domain import onboarding as ob
 from app.domain import onboarding_flow as flow
 from app.domain.config import SCHEMA, coerce
-from app.domain.llm import PRICES, estimated_cost
+from app.domain.llm import PRICES, call_cost, estimated_cost
 from app.integrations.llm import get_llm
 from app.models import (
     AgentPrompt,
@@ -450,6 +450,48 @@ def style_for(prompt_version: int) -> list[str]:
     return [] if prompt_version >= RULES_IN_PROMPT else STYLE
 
 
+def usage_view(used: dict[str, Any]) -> dict[str, Any]:
+    """What an answer took: tokens, how many came from the provider's cache, and the cost."""
+    return {
+        "model": used.get("model"),
+        "input_tokens": used.get("input_tokens", 0),
+        "output_tokens": used.get("output_tokens", 0),
+        "cache_read_tokens": used.get("cache_read_tokens", 0),
+        "cache_write_tokens": used.get("cache_write_tokens", 0),
+        "cost_usd": call_cost(
+            str(used.get("model") or ""),
+            used.get("input_tokens", 0),
+            used.get("output_tokens", 0),
+            used.get("cache_read_tokens", 0),
+            used.get("cache_write_tokens", 0),
+        ),
+    }
+
+
+VOLATILE_CONTEXT = ("mentioned_cards", "mentions_not_found")  # change with every question
+_JSON: dict[str, Any] = {"ensure_ascii": False, "default": str, "separators": (",", ":")}
+
+
+def build_user(
+    side: str, step: str, ctx: dict[str, Any], conversation: str, question: str,
+    rules: list[str] | None = None,
+) -> tuple[str, int | None]:  # fmt: skip
+    """The message the model reads, and how many of its first characters are the same for every
+    question about this workspace (so the provider can keep them in its cache and charge a tenth
+    for them on the next question). The stable part is the workspace context; what changes per
+    question (the page, the attached cards, the conversation, the question) comes after it. The
+    text the model reads is the same as before apart from the order of two keys."""
+    stable = {k: v for k, v in ctx.items() if k not in VOLATILE_CONTEXT}
+    head = json.dumps({"asker": side, "context": stable}, **_JSON)[:-2]
+    payload: dict[str, Any] = {"asker": side, "context": ctx, "step": step,
+                               "conversation": conversation}  # fmt: skip
+    if rules:
+        payload["answer_style"] = rules
+    payload["question"] = question
+    user = json.dumps(payload, **_JSON)
+    return user, (len(head) if user.startswith(head) else None)
+
+
 async def _call_full(
     tenant_id: uuid.UUID, side: str, step: str, question: str, ctx: dict[str, Any],
     history: list[Turn], version: int | None = None,
@@ -472,26 +514,35 @@ async def _call_full(
                 raise Conflict(f"{AGENT} has no version {version}")
             prompt = chosen
         choice = await _choice(s, agent)
-    payload: dict[str, Any] = {"asker": side, "step": step, "context": ctx,
-                               "conversation": _history(history)}  # fmt: skip
-    if rules := style_for(prompt.version):
-        payload["answer_style"] = rules
-    payload["question"] = question
-    user = json.dumps(payload, ensure_ascii=False, default=str, separators=(",", ":"))
+    user, cache_chars = build_user(
+        side, step, ctx, _history(history), question, style_for(prompt.version)
+    )
     fake = AssistantOut(answer="(local fake model) " + question, metric_suggestions=[],
                         rule_suggestions=[])  # fmt: skip
     result = await get_llm(choice.provider, choice.model).structured(
-        prompt.body, user, AssistantOut, fake=fake, effort="low", timeout_s=180
+        prompt.body,
+        user,
+        AssistantOut,
+        fake=fake,
+        effort="low",
+        timeout_s=180,
+        cache_chars=cache_chars,
     )
     tokens = result.input_tokens + result.output_tokens
     log.info("assistant.answer", side=side, step=step, model=result.model, tokens=tokens,
+             input_tokens=result.input_tokens, output_tokens=result.output_tokens,
+             cache_read=result.cache_read_tokens, cache_write=result.cache_write_tokens,
+             cost_usd=call_cost(result.model, result.input_tokens, result.output_tokens,
+                                result.cache_read_tokens, result.cache_write_tokens),
              prompt_version=prompt.version)  # fmt: skip
     if result.parsed is None:
         raise Conflict(ob.ai_error(result.error or "no answer", "ask again"))
     out = result.parsed
     assert isinstance(out, AssistantOut)
     used = {"model": result.model, "prompt_version": prompt.version,
-            "input_tokens": result.input_tokens, "output_tokens": result.output_tokens}  # fmt: skip
+            "input_tokens": result.input_tokens, "output_tokens": result.output_tokens,
+            "cache_read_tokens": result.cache_read_tokens,
+            "cache_write_tokens": result.cache_write_tokens}  # fmt: skip
     return out, used
 
 
@@ -530,6 +581,20 @@ def mapping_mentions(links: list[dict[str, Any]], ids: list[str]) -> list[dict[s
     return found
 
 
+def proposal_mentions(ctx: dict[str, Any], ids: list[str]) -> list[dict[str, Any]]:
+    """The org roles (`r:<ref>`) and metrics (`x:<key>`) attached with @, read from the proposals
+    already in the context, so a question about "it" has the whole item and its owners to read."""
+    roles = {str(r.get("ref")): r for r in (ctx.get("org_proposal") or {}).get("roles", [])}
+    metrics = {str(m.get("key")): m for m in (ctx.get("metrics_proposal") or {}).get("metrics", [])}
+    found: list[dict[str, Any]] = []
+    for mid in ids:
+        if mid.startswith("r:") and mid[2:] in roles:
+            found.append({"card": mid, "kind": "org role", **roles[mid[2:]]})
+        elif mid.startswith("x:") and mid[2:] in metrics:
+            found.append({"card": mid, "kind": "metric on the plan", **metrics[mid[2:]]})
+    return found
+
+
 async def team_context_for(
     tenant_id: uuid.UUID, cards: list[str] | None = None
 ) -> tuple[dict[str, Any], list[str]]:
@@ -543,7 +608,8 @@ async def team_context_for(
         # Cards the team mentioned with @: the chat answers about exactly these. Mapping links
         # (m:) come from the mapping already in the context; the rest from discovery.
         found = mapping_mentions(ctx.get("links") or [], [c for c in cards if c.startswith("m:")])
-        rest = [c for c in cards if not c.startswith("m:")]
+        found += proposal_mentions(ctx, [c for c in cards if c.startswith(("r:", "x:"))])
+        rest = [c for c in cards if not c.startswith(("m:", "r:", "x:"))]
         if rest:
             found += await onboarding_items.card_context(tenant_id, rest)
         ctx["mentioned_cards"] = found
@@ -558,8 +624,9 @@ async def team_ask(
     cards: list[str] | None = None,
 ) -> dict[str, Any]:  # fmt: skip
     ctx, missing = await team_context_for(tenant_id, cards)
-    out = await _call(tenant_id, "team", step, question, ctx, history)
-    return {"answer": out.answer, **_check(out, ctx), "mentions_missing": missing}
+    out, used = await _call_full(tenant_id, "team", step, question, ctx, history)
+    return {"answer": out.answer, **_check(out, ctx), "mentions_missing": missing,
+            "usage": usage_view(used)}  # fmt: skip
 
 
 async def client_ask(

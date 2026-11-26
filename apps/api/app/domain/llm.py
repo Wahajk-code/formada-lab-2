@@ -92,3 +92,20 @@ def estimated_cost(model: str, tokens: int) -> float | None:
         return None
     blended = price[0] * INPUT_SHARE + price[1] * (1 - INPUT_SHARE)
     return round(tokens * blended / 1e6, 4)
+
+
+CACHE_READ = 0.10  # a cached input token costs a tenth of a normal one
+CACHE_WRITE = 1.25  # writing to the cache costs a quarter more than a normal input token
+
+
+def call_cost(
+    model: str, input_tokens: int, output_tokens: int, cache_read: int = 0, cache_write: int = 0
+) -> float | None:
+    """The cost of one call from its token counts. `input_tokens` is the total sent, with the
+    cached parts included, as the providers' wrappers here report it."""
+    price = PRICES.get(model)
+    if price is None:
+        return None
+    plain = max(0, input_tokens - cache_read - cache_write)
+    cost_in = plain + cache_read * CACHE_READ + cache_write * CACHE_WRITE
+    return round((cost_in * price[0] + output_tokens * price[1]) / 1e6, 5)

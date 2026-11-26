@@ -54,7 +54,7 @@ function status(l: Link): { tone: Tone; word: string } {
 const firstSentence = (s: string) => s.split(/(?<=\.)\s/)[0] ?? s;
 const CONF: Record<string, Tone> = { high: "ready", medium: "partial", low: "fail" };
 
-export function MappingStage({ step, guide, workspaceId, can }: { step: OnboardingStep; guide: OnboardingGuide | null; workspaceId: string; can: boolean }) {
+export function MappingStage({ step, guide, workspaceId, can, actions }: { step: OnboardingStep; guide: OnboardingGuide | null; workspaceId: string; can: boolean; actions?: React.ReactNode }) {
   const router = useRouter();
   const out = step.output as any;
   const checks = (step.checks?.archetypes ?? {}) as Record<string, any>;
@@ -282,8 +282,11 @@ export function MappingStage({ step, guide, workspaceId, can }: { step: Onboardi
             const view = viewOf(a.source_sql);
             const tables = tablesOf(a.source_sql);
             const fields: any[] = a.fields ?? [];
-            const found = fields.filter((f) => f.source_columns?.length);
+            // The fields that still need a human come first: low, then medium, then the ones already high.
+            const rank = (f: any) => ({ low: 0, medium: 1, high: 2 })[f.confidence as string] ?? 1;
+            const found = fields.filter((f) => f.source_columns?.length).sort((x, y) => rank(x) - rank(y));
             const missing = fields.filter((f) => !f.source_columns?.length);
+            const toCheck = found.filter((f) => f.confidence !== "high").length;
             return (
               <div key={key} data-link={key} className="rv-link-anchor">
                 <Section
@@ -362,7 +365,7 @@ export function MappingStage({ step, guide, workspaceId, can }: { step: Onboardi
 
                   {fields.length > 0 && (
                     <div className="rv-block">
-                      <Sub title="Field by field" note="our field ← their column" />
+                      <Sub title="Field by field" note={toCheck ? `${toCheck} to check first · our field ← their column` : "our field ← their column · all checked"} />
                       <div className="rv-fields" role="table" aria-label={`${WORDS[key] ?? key} fields`}>
                         <div className="rv-fr rv-th" role="row">
                           <span role="columnheader">Our field</span>
@@ -381,6 +384,7 @@ export function MappingStage({ step, guide, workspaceId, can }: { step: Onboardi
                               <span role="cell">{has ? <code>{(f.source_columns as string[]).join(" + ")}</code> : <span className="rv-muted">Not in their data</span>}</span>
                               <span role="cell">
                                 {has ? humanDates(f.expression) : <span className="rv-muted">Left empty</span>}
+                                {has && f.confidence !== "high" && f.reason && <small className="rv-muted rv-why">Why not sure: {humanDates(f.reason)}</small>}
                                 {fills[f.field] != null && (
                                   <span className={cn("rv-fill", fills[f.field] < 50 && "low")}>
                                     <i style={{ ["--p" as string]: `${fills[f.field]}%` }} />
@@ -388,7 +392,31 @@ export function MappingStage({ step, guide, workspaceId, can }: { step: Onboardi
                                   </span>
                                 )}
                               </span>
-                              <span role="cell">{has ? <Status tone={CONF[f.confidence] ?? "partial"}>{f.confidence}</Status> : <Status tone="missing">none</Status>}</span>
+                              <span role="cell">
+                                {has ? <Status tone={CONF[f.confidence] ?? "partial"}>{f.confidence}</Status> : <Status tone="missing">none</Status>}
+                                {can && has && f.confidence !== "high" && !unmappable && (
+                                  <button
+                                    type="button"
+                                    className="rv-confirm-field"
+                                    disabled={busy}
+                                    title="I checked this column. Set it to high confidence."
+                                    onClick={() =>
+                                      start(async () =>
+                                        saved(
+                                          key,
+                                          await editProposalItem(workspaceId, "mapping", step.id, key, {
+                                            ...a,
+                                            fields: fields.map((x: any) => (x.field === f.field ? { ...x, confidence: "high", reason: `${String(x.reason ?? "").replace(/\s*Confirmed by the team\.?$/, "")} Confirmed by the team.`.trim() } : x)),
+                                          }),
+                                          `${f.field} confirmed as high confidence. The link needs a new confirmation.`,
+                                        ),
+                                      )
+                                    }
+                                  >
+                                    <Icon name="check" size={13} /> Confirm
+                                  </button>
+                                )}
+                              </span>
                               <FactBar id={`m:${key}.${f.field}`} ctx={at} note={null} />
                             </div>
                           );
@@ -463,6 +491,8 @@ export function MappingStage({ step, guide, workspaceId, can }: { step: Onboardi
           })}
         </div>
       </section>
+
+      {actions}
 
       <div data-engineer-chat-host>
         <EngineerChat

@@ -35,6 +35,18 @@ export const CHANGE_WORD = "/change";
 
 /** True when the message starts with the word that authorises a change. */
 export const isChange = (text: string) => /^\/change(?:\s|$)/i.test(text.trim());
+/**
+ * True when a message reads as an order to change what is attached ("turn it to high", "use invoiced
+ * sales instead"), not a question. The chat cannot change anything from a plain message, so the
+ * person is offered to send it as a change instead of getting an answer that says it cannot.
+ */
+const CHANGE_VERBS = "change|set|make|turn|update|fix|replace|switch|use|remove|delete|add|mark|raise|lower|rename|correct|edit|revise|exclude|include|drop|keep|point|map";
+export function looksLikeChange(text: string): boolean {
+  const t = text.trim();
+  if (!t || isChange(t) || t.endsWith("?")) return false;
+  if (/^(what|why|how|can|could|does|do|is|are|should|would|which|who|when|where|explain|tell|show|list|describe|compare)/i.test(t)) return false;
+  return new RegExp(`(^|[,;.:]\\s*|\\band\\s+|\\bthen\\s+)(please\\s+)?(${CHANGE_VERBS})\\b`, "i").test(t);
+}
 /** The message without the word. */
 export const withoutChangeWord = (text: string) => text.trim().replace(/^\/change\s*/i, "").trim();
 

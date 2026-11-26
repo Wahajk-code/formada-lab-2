@@ -41,6 +41,9 @@ import { ItemEditor } from "@/components/console/onboarding/item-editor";
 import { MappingStage } from "@/components/console/onboarding/mapping-stage";
 import { MetricLibrary } from "@/components/console/onboarding/metric-library";
 import { RulesPresets } from "@/components/console/onboarding/rules-presets";
+import { ConnectReach } from "@/components/console/onboarding/connect-reach";
+import { RoleCoverage } from "@/components/console/onboarding/role-coverage";
+import { StepChat } from "@/components/console/onboarding/step-chat";
 import {
   blockingChecks,
   Checklist,
@@ -226,14 +229,24 @@ function GoLiveBar({ state, can }: { state: OnboardingState; can: boolean }) {
         <>
           {blockers.length > 0 && (
             <ul className="stage-role-coverage">
-              {blockers.map((b) => (
-                <li key={b}>
-                  <span>
-                    <strong>{b}</strong>
-                  </span>
-                  <span className="stage-badge attention">Blocking</span>
-                </li>
-              ))}
+              {blockers.map((b) => {
+                const step = /^(\w+): not complete yet$/.exec(b)?.[1] as ThreadStep | undefined;
+                const meta = step ? STEP_META[step] : undefined;
+                return (
+                  <li key={b}>
+                    <span>
+                      <strong>{meta ? `${meta.name} is not complete yet` : b === "run a successful trial first" ? "The trial has not run successfully yet" : b}</strong>
+                    </span>
+                    {meta ? (
+                      <Link className="stage-inline-link" href={`/console/workspaces/${state.workspace.id}/onboarding/${step}`}>
+                        Open {meta.name} <Icon name="arrow-right" size={14} />
+                      </Link>
+                    ) : (
+                      <span className="stage-badge attention">Blocking</span>
+                    )}
+                  </li>
+                );
+              })}
             </ul>
           )}
           <div className="stage-complete">
@@ -490,6 +503,11 @@ const STAGE_COPY: Partial<
   },
 };
 
+/** The note a step carries is what the team asked for, or the record of an edit ("x revised by AI: ...",
+ * "y confirmed"). Only the first belongs in the instructions box. */
+const EDIT_NOTE = /(revised by AI|edited by hand|edited by our team|changes by AI| confirmed$| unlocked$|(link|relationship) (added|removed):)/;
+const ownNotes = (note: string | null | undefined) => (note && !EDIT_NOTE.test(note) ? note : "");
+
 function AgentActions({
   name,
   state,
@@ -507,7 +525,7 @@ function AgentActions({
   const [showNotes, setShowNotes] = useState(
     Boolean(copy) || (name === "org" && !state.draft.nodes.length && !step),
   );
-  const [notes, setNotes] = useState(step?.notes || copy?.instructions || "");
+  const [notes, setNotes] = useState(ownNotes(step?.notes) || copy?.instructions || "");
   const [why, setWhy] = useState("");
   const [pending, start] = useTransition();
   const [msg, setMsg] = useState<string | null>(null);
@@ -715,6 +733,15 @@ export function StepView({
   const editable =
     can && !locked && !info.team_approved && state.lifecycle !== "live";
   const threads = state.threads.filter((t) => t.step === stepKey);
+  // Discovery and Mapping are read first: their actions (instructions, mark complete, run again) come
+  // after the review and before the chat, not above the summary.
+  const actionsAfter = Boolean(ready) && (stepKey === "discovery" || stepKey === "mapping");
+  const afterReview =
+    actionsAfter && agent && !locked && !info.team_approved ? (
+      <section className="stage-panel stage-content-panel space-y-4">
+        <AgentActions key={`actions-${step?.id ?? "new"}`} name={agent} state={state} can={can} locked={null} />
+      </section>
+    ) : null;
 
   return (
     <section className="step-content" aria-labelledby="step-heading">
@@ -747,6 +774,8 @@ export function StepView({
             />
           )}
           {stepKey === "org" && <OrgVerdict state={state} can={can} />}
+          {stepKey === "org" && <RoleCoverage state={state} guide={guide} />}
+          {stepKey === "connect" && state.connection?.status === "ok" && <ConnectReach guide={guide} />}
           {agent && step && (step.status === "running" || step.status === "failed") && (
             <StepStatus step={step} workspaceId={state.workspace.id} can={can} stepName={stepKey} />
           )}
@@ -769,7 +798,7 @@ export function StepView({
           {agent && !step && !locked && stepKey !== "org" && (
             <p className="text-sm text-muted-foreground">Not started. Start the analysis below.</p>
           )}
-          {agent && !locked && !info.team_approved && stepKey !== "metrics" && (
+          {agent && !locked && !info.team_approved && stepKey !== "metrics" && !actionsAfter && (
             <AgentActions
               key={`actions-${step?.id ?? "new"}`}
               name={agent}
@@ -816,6 +845,7 @@ export function StepView({
             state={state}
             step={step!}
             editable={editable && step!.status === "proposed"}
+            guide={guide}
           />
         )}
         {agent && stepKey === "metrics" && !locked && !info.team_approved && (
@@ -852,7 +882,7 @@ export function StepView({
           </>
         )}
         {ready && stepKey === "discovery" && (
-          <DiscoveryStage out={out} guide={guide} workspaceId={state.workspace.id} stepId={step!.id} can={editable && step!.status === "proposed"} />
+          <DiscoveryStage out={out} guide={guide} workspaceId={state.workspace.id} stepId={step!.id} can={editable && step!.status === "proposed"} actions={afterReview} />
         )}
         {ready && stepKey === "mapping" && (
           <MappingStage
@@ -860,6 +890,7 @@ export function StepView({
             guide={guide}
             workspaceId={state.workspace.id}
             can={editable && step!.status === "proposed"}
+            actions={afterReview}
           />
         )}
 
@@ -900,6 +931,24 @@ export function StepView({
           />
         )}
 
+        {!locked && stepKey === "org" && (
+          <StepChat
+            workspaceId={state.workspace.id}
+            stepName="org"
+            step={state.steps.org}
+            can={editable && state.steps.org?.status === "proposed"}
+            starters={["Which roles will not get cards, and why?", "Explain this org web in plain words", "Simplify: who owns what?"]}
+          />
+        )}
+        {!locked && stepKey === "metrics" && (
+          <StepChat
+            workspaceId={state.workspace.id}
+            stepName="metrics"
+            step={state.steps.metrics}
+            can={editable && state.steps.metrics?.status === "proposed"}
+            starters={["Which three measures matter most for the Buyer?", "Why is each measure on the plan?", "Simplify the metric plan"]}
+          />
+        )}
         {!locked && <SignoffPanel state={state} stepKey={stepKey} can={can} />}
 
         {ready && (

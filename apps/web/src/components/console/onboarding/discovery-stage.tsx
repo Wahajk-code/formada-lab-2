@@ -101,12 +101,15 @@ export function DiscoveryStage({
   workspaceId,
   stepId,
   can,
+  actions,
 }: {
   out: any;
   guide: OnboardingGuide | null;
   workspaceId: string;
   stepId: string;
   can: boolean;
+  /** The step's own actions (instructions, mark complete, run again): after the review, before the chat. */
+  actions?: React.ReactNode;
 }) {
   const router = useRouter();
   const [section, setSection] = useState<Section>("guide");
@@ -534,6 +537,8 @@ export function DiscoveryStage({
           </div>
         )}
       </section>
+
+      {actions}
 
       <section className="stage-panel stage-content-panel discovery-assistant">
         <EngineerChat

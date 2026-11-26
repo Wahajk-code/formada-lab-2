@@ -905,3 +905,38 @@ button.rv-tile { width: 100%; text-align: left; font: inherit; color: inherit; c
 .vd-nolink { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding: 9px 12px; border: 1px dashed #e0a526; border-radius: 10px; font-size: 14px; }
 .vd-ai { margin: 4px 0; font-size: 14px; line-height: 1.5; }
 .vd-ends { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+
+/* A message that reads as a change: offered as a change instead of answered with "I cannot". */
+.change-offer { display: grid; gap: 8px; padding: 12px 14px; margin-bottom: 8px; border: 1px solid #6f4ec955; border-radius: 12px; background: #6f4ec90d; font-size: 13.5px; }
+.change-offer p { margin: 0; display: flex; gap: 8px; align-items: flex-start; }
+.change-offer small { color: var(--fd-secondary); }
+.change-offer-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* The whole setup on one line, on every step. */
+.sg { border: 1px solid var(--fd-border); border-radius: 14px; background: var(--fd-card, #fff); }
+.sg > summary { list-style: none; cursor: pointer; display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 18px; padding: 12px 16px; font-size: 14px; }
+.sg > summary::-webkit-details-marker { display: none; }
+.sg-count b { font-size: 15px; }
+.sg-next { color: var(--fd-secondary); flex: 1 1 260px; min-width: 0; }
+.sg-next b { color: inherit; font-weight: 700; }
+.sg-more { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; font-size: 12.5px; font-weight: 600; color: #5436a0; }
+.sg[open] .sg-more svg { transform: rotate(180deg); }
+.sg > summary:focus-visible { outline: 3px solid #6f4ec9; outline-offset: 2px; border-radius: 14px; }
+.sg-list { list-style: none; margin: 0; padding: 4px 16px 12px; display: grid; }
+.sg-list li { display: grid; grid-template-columns: 120px auto minmax(0, 1fr); align-items: center; gap: 6px 14px; padding: 9px 0; border-top: 1px solid var(--fd-border); font-size: 13.5px; }
+.sg-list li.is-current b { color: #5436a0; }
+.sg-list a { color: inherit; text-decoration: none; }
+.sg-list a:hover { text-decoration: underline; }
+.sg-line { color: var(--fd-secondary); min-width: 0; overflow-wrap: anywhere; }
+@media (max-width: 720px) { .sg-list li { grid-template-columns: minmax(0, 1fr) auto; } .sg-line { grid-column: 1 / -1; } }
+
+/* Mapping: confirm one field after checking it. */
+.rv-confirm-field { all: unset; box-sizing: border-box; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; margin-top: 4px; padding: 3px 9px; border: 1px solid #6f4ec955; border-radius: 99px; font-size: 12px; font-weight: 600; color: #5436a0; background: #6f4ec90d; }
+.rv-confirm-field:hover { background: #6f4ec91f; }
+.rv-confirm-field:focus-visible { outline: 3px solid #6f4ec9; outline-offset: 2px; }
+.rv-confirm-field:disabled { opacity: .5; cursor: default; }
+.rv-why { display: block; margin-top: 3px; max-width: 46ch; }
+
+/* Metrics by role: this role's own measures first, then the others. */
+.metric-group { grid-column: 1 / -1; margin: 12px 0 4px; font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--fd-secondary); }
+.metric-group:first-child { margin-top: 0; }

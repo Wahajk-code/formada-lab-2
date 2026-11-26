@@ -6,7 +6,7 @@ import { ChatTurn } from "@/components/console/onboarding/chat-turn";
 import { ThinkingMark } from "@/components/console/onboarding/thinking-mark";
 import { Icon } from "@/components/ui/icon";
 import type { AssistantTurn } from "@/lib/client-api";
-import { CHANGE_WORD, isChange, withoutChangeWord } from "@/lib/mentions";
+import { CHANGE_WORD, isChange, looksLikeChange, withoutChangeWord } from "@/lib/mentions";
 
 export type RerunConfig = {
   disabled: boolean;
@@ -115,6 +115,18 @@ function Chat({
     if (el) el.scrollTop = el.scrollHeight;
   }, []);
   const [picker, setPicker] = useState<{ query: string; start: number; end: number; index: number } | null>(null);
+  // A message that reads as an order to change something is not sent as a question: the chat cannot
+  // change anything from a plain message. The person chooses to send it as a change or as a question.
+  const [offer, setOffer] = useState<string | null>(null);
+  const sendOffer = (asChange: boolean) => {
+    if (offer == null) return;
+    const text = offer;
+    setOffer(null);
+    setDraft("");
+    if (asChange && onChange) onChange(text);
+    else onAsk(text);
+    onMentions?.([]);
+  };
   const byId = new Map(mentionables.map((m) => [m.id, m]));
   const options = picker
     ? mentionables
@@ -141,6 +153,10 @@ function Chat({
     const text = draft.trim();
     if (!text || busy) return;
     if (intent === "rerun" && (!rerun || rerun.disabled || !onRerun)) return;
+    if (intent === "ask" && onChange && looksLikeChange(text)) {
+      setOffer(text);
+      return;
+    }
     setDraft("");
     // What was attached moves onto the message that is sent, so the input starts clean. It stays in
     // the conversation's context (see `context`).
@@ -256,6 +272,25 @@ function Chat({
               })}
             </div>
           )}
+          {offer != null && (
+            <div className="change-offer" role="group" aria-label="Send as a change?">
+              <p>
+                <Icon name="pen" size={15} /> That reads as a change. The assistant only reads from a plain message, so it would answer that it cannot do it.
+              </p>
+              <div className="change-offer-buttons">
+                <button type="button" className="btn btn-primary" onClick={() => sendOffer(true)}>
+                  <Icon name="check" size={15} /> <span>Propose this change</span>
+                </button>
+                <button type="button" className="btn btn-secondary" onClick={() => sendOffer(false)}>
+                  Ask it as a question
+                </button>
+                <button type="button" className="btn btn-secondary" onClick={() => setOffer(null)}>
+                  Edit the message
+                </button>
+              </div>
+              <small>You see every change before it is applied, and locked cards never change.</small>
+            </div>
+          )}
           <div className="mention-wrap">
             <textarea
               aria-label="Message to the engineering assistant"
@@ -266,6 +301,7 @@ function Chat({
               value={draft}
               onChange={(e) => {
                 setDraft(e.target.value);
+                setOffer(null);
                 watch(e.target.value, e.target.selectionStart ?? e.target.value.length);
               }}
               onKeyDown={(e) => {

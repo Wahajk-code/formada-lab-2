@@ -55,6 +55,10 @@ class Structured(Generic[T]):  # noqa: UP046 (methods share the module TypeVar)
     latency_ms: int
     error: str | None = None
     thinking: str = ""  # the model's own reasoning text when the provider returns it
+    # Included in input_tokens already. Cached reads cost a tenth of a normal input token and a
+    # cache write a quarter more, so the split is what makes the real cost knowable.
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
 
 
 class LLMClient(Protocol):
@@ -70,6 +74,7 @@ class LLMClient(Protocol):
         fake: T | None = None,
         effort: str = "low",
         timeout_s: float | None = None,
+        cache_chars: int | None = None,
     ) -> Structured[T]: ...
 
 
@@ -84,6 +89,7 @@ class _CardsFromStructured:
         fake: T | None = None,
         effort: str = "low",
         timeout_s: float | None = None,
+        cache_chars: int | None = None,
     ) -> Structured[T]:
         raise NotImplementedError
 
@@ -120,6 +126,7 @@ class OpenAILLM(_CardsFromStructured):
         fake: T | None = None,
         effort: str = "low",
         timeout_s: float | None = None,
+        cache_chars: int | None = None,
     ) -> Structured[T]:
         started = time.perf_counter()
         try:
@@ -179,7 +186,11 @@ _CLAUDE_FALLBACK_MODELS = {"claude-opus-5-5", "claude-sonnet-5-5"}
 
 class AnthropicLLM(_CardsFromStructured):
     """Messages API structured output parsed into the schema. Thinking is adaptive; card writing
-    runs at effort low, onboarding agents ask for more (ADR 0026)."""
+    runs at effort low, onboarding agents ask for more (ADR 0026).
+
+    `cache_chars` marks the first characters of the user message as a stable prefix (a workspace's
+    whole context in the chat): the provider keeps it for a few minutes, so the next question that
+    starts with the same text pays a tenth of the price for it. The text sent is unchanged."""
 
     def __init__(self, api_key: str, model: str) -> None:
         self._client = anthropic.AsyncAnthropic(api_key=api_key, max_retries=0, timeout=TIMEOUT_S)
@@ -193,6 +204,7 @@ class AnthropicLLM(_CardsFromStructured):
         fake: T | None = None,
         effort: str = "low",
         timeout_s: float | None = None,
+        cache_chars: int | None = None,
     ) -> Structured[T]:
         started = time.perf_counter()
         fallback = self._model in _CLAUDE_FALLBACK_MODELS
@@ -201,7 +213,7 @@ class AnthropicLLM(_CardsFromStructured):
                 model=self._model,
                 max_tokens=MAX_OUTPUT_TOKENS,
                 system=system,
-                messages=[{"role": "user", "content": user}],
+                messages=[{"role": "user", "content": _cached_content(user, cache_chars)}],
                 output_format=schema,
                 output_config={"effort": effort},  # type: ignore[arg-type]
                 thinking={"type": "adaptive", "display": "summarized"},  # the lab shows it
@@ -227,13 +239,18 @@ class AnthropicLLM(_CardsFromStructured):
             error = "output cut off at max_tokens"
         elif response.parsed_output is None:
             error = "no structured output"
+        usage = response.usage
+        read = getattr(usage, "cache_read_input_tokens", 0) or 0
+        wrote = getattr(usage, "cache_creation_input_tokens", 0) or 0
         return Structured(
             provider="anthropic",
             model=response.model,  # the fallback model, if one answered
             raw="".join(b.text for b in response.content if b.type == "text"),
             parsed=None if error else response.parsed_output,
-            input_tokens=response.usage.input_tokens,
-            output_tokens=response.usage.output_tokens,
+            input_tokens=usage.input_tokens + read + wrote,
+            output_tokens=usage.output_tokens,
+            cache_read_tokens=read,
+            cache_write_tokens=wrote,
             latency_ms=_ms(started),
             error=error,
             thinking=_JOIN.join(
@@ -242,6 +259,17 @@ class AnthropicLLM(_CardsFromStructured):
                 if b.type == "thinking"
             ).strip(),
         )
+
+
+def _cached_content(user: str, cache_chars: int | None) -> Any:
+    """The user message, with its stable first part marked for the provider's prompt cache. The
+    text is exactly the same; only where it is cut changes. No mark when nothing follows it."""
+    if not cache_chars or not 0 < cache_chars < len(user):
+        return user
+    return [
+        {"type": "text", "text": user[:cache_chars], "cache_control": {"type": "ephemeral"}},
+        {"type": "text", "text": user[cache_chars:]},
+    ]
 
 
 def _anthropic_transient(exc: anthropic.APIStatusError) -> bool:
@@ -267,6 +295,7 @@ class GeminiLLM(_CardsFromStructured):
         fake: T | None = None,
         effort: str = "low",
         timeout_s: float | None = None,
+        cache_chars: int | None = None,
     ) -> Structured[T]:
         started = time.perf_counter()
         config = genai_types.GenerateContentConfig(
@@ -332,6 +361,7 @@ class UnconfiguredLLM(_CardsFromStructured):
         fake: T | None = None,
         effort: str = "low",
         timeout_s: float | None = None,
+        cache_chars: int | None = None,
     ) -> Structured[T]:
         error = f"{self._env_var} is not set on the API server"
         return _failed(self._provider, self._model, time.perf_counter(), error)
@@ -375,6 +405,7 @@ class FakeLLM:
         fake: T | None = None,
         effort: str = "low",
         timeout_s: float | None = None,
+        cache_chars: int | None = None,
     ) -> Structured[T]:
         if fake is None:
             return _failed("fake", "fake-cards-v1", time.perf_counter(), "no fake answer")

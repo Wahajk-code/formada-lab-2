@@ -61,6 +61,7 @@ from app.schemas.onboarding import DiscoveryOut, MappingOut, MetricsOut, OrgOut,
 from app.services import auth as auth_service
 from app.services import console, onboarding_collab, onboarding_review
 from app.services.agents import _choice
+from app.services.metric_shapes import template_shapes
 
 log = get_logger(__name__)
 AGENT_TIMEOUT_S = 600
@@ -451,6 +452,7 @@ async def state(tenant_id: uuid.UUID) -> dict[str, Any]:
         },
         "mock_connection": mock_connection_available(),
         "lab": await lab_snapshots(tenant_id) if lab() else None,
+        "template_shapes": template_shapes(),
         "connection": {
             "account_identifier": wc.account_identifier,
             "user_name": wc.user_name,

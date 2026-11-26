@@ -2,6 +2,7 @@ import { notFound, redirect } from "next/navigation";
 
 import { STEP_META, TEAM_STEP_ORDER } from "@/components/console/onboarding/meta";
 import { StepView } from "@/components/console/onboarding/step-view";
+import { SetupGlance } from "@/components/console/onboarding/setup-glance";
 import { TeamStepper } from "@/components/console/onboarding/team-stepper";
 import { StepNav } from "@/components/onboarding/stepper";
 import type { ThreadStep } from "@/lib/client-api";
@@ -26,6 +27,7 @@ export default async function OnboardingStepPage({ params }: { params: Promise<{
   return (
     <div className="space-y-6">
       <TeamStepper state={state} current={key} workspaceId={id} />
+      <SetupGlance state={state} current={key} workspaceId={id} />
       <StepView state={state} stepKey={key} can={me.permissions.includes("config.write")} guide={guide} />
       <StepNav
         prev={prev && { href: href(prev), label: STEP_META[prev].title }}

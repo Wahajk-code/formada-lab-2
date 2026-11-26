@@ -3,11 +3,12 @@
 
 import { BookOpen, ChevronDown, LoaderCircle, Plus, Save, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useMemo, useState, useTransition } from "react";
+import { Fragment, useMemo, useState, useTransition } from "react";
 
 import { draftCustomMetric, editMetricsProposal, editRulesProposal } from "@/app/console-actions";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
+import { CORE, CORE_FOR_ROLE, EVERY_CORE, EXTRA, PLAYBOOK_WORD } from "@/components/console/onboarding/role-coverage";
 import { Pill, TONE } from "@/components/onboarding/tone";
 import type { OnboardingGuide, OnboardingState, OnboardingStep } from "@/lib/console-api";
 import { cn } from "@/lib/utils";
@@ -172,7 +173,7 @@ function NewMetricForm({ state, onDone }: { state: OnboardingState; onDone: (mes
   );
 }
 
-export function WhoSeesWhat({ state, step, editable }: { state: OnboardingState; step: OnboardingStep; editable: boolean }) {
+export function WhoSeesWhat({ state, step, editable, guide }: { state: OnboardingState; step: OnboardingStep; editable: boolean; guide?: OnboardingGuide | null }) {
   const router = useRouter();
   const out = step.output as any;
   const roles = useMemo(() => roleRefs(state.org.roles), [state.org.roles]);
@@ -205,6 +206,19 @@ export function WhoSeesWhat({ state, step, editable }: { state: OnboardingState;
   const withMetrics = roles.filter((r) => countFor(r.ref) > 0).length;
   const selected = roles.find((r) => r.ref === roleRef) ?? roles[0];
   const matches = roles.filter((r) => r.title.toLowerCase().includes(search.trim().toLowerCase()));
+
+  // The selected role's own measures first: the ones on the shapes its type reads. The rest are one
+  // click away. A measure the role already has always counts as its own, wherever it comes from.
+  const roleInfo = state.org.roles.find((r) => r.title === selected?.title);
+  const playbook = guide?.role_archetypes.find((a) => a.key === roleInfo?.archetype)?.playbook ?? null;
+  const ownShapes = new Set(
+    playbook === "executive" ? EVERY_CORE : [...((roleInfo?.archetype && CORE_FOR_ROLE[roleInfo.archetype]) || (playbook ? (CORE[playbook] ?? []) : [])), ...(playbook && playbook !== "executive" ? (EXTRA[playbook] ?? []) : [])],
+  );
+  const shapeOf = (m: any) => state.template_shapes?.[String(m.template).split(" ")[0]];
+  const isOwn = (m: any) => !ownShapes.size || ownShapes.has(shapeOf(m) ?? "") || (selected ? grid[m.key].cells[selected.ref].on : false);
+  const ordered = [...live.filter(isOwn), ...live.filter((m: any) => !isOwn(m))];
+  const ownCount = live.filter(isOwn).length;
+  const chosen = selected ? countFor(selected.ref) : 0;
 
   const save = () =>
     start(async () => {
@@ -316,10 +330,17 @@ export function WhoSeesWhat({ state, step, editable }: { state: OnboardingState;
             </p>
             <fieldset>
               <legend className="stage-visually-hidden">Metrics for {selected.title}</legend>
-              {live.map((m: any) => {
+              {ordered.map((m: any, i: number) => {
                 const c = grid[m.key].cells[selected.ref];
                 return (
-                  <div key={m.key}>
+                  <Fragment key={m.key}>
+                    {i === 0 && playbook && ownCount > 0 && (
+                      <p className="metric-group">
+                        Suggested for {/^[aeiou]/i.test(PLAYBOOK_WORD[playbook] ?? playbook) ? "an" : "a"} {PLAYBOOK_WORD[playbook] ?? playbook} role · {chosen} chosen{chosen > 5 ? " (3 to 5 is easier to act on)" : ""}
+                      </p>
+                    )}
+                    {i === ownCount && ownCount > 0 && ownCount < ordered.length && <p className="metric-group">Other measures, for another kind of role</p>}
+                  <div>
                     <label className="metric-check">
                       <input type="checkbox" disabled={!editable} checked={c.on} onChange={(e) => set(m.key, selected.ref, { on: e.target.checked })} />
                       <span>
@@ -348,6 +369,7 @@ export function WhoSeesWhat({ state, step, editable }: { state: OnboardingState;
                       </div>
                     )}
                   </div>
+                  </Fragment>
                 );
               })}
             </fieldset>

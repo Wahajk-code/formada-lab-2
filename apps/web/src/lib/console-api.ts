@@ -493,6 +493,8 @@ export type OnboardingState = {
     owner: { name: string; email: string } | null;
     llm: string | null;
   };
+  /** Which standard shape each metric template reads, to put a role's own measures first. */
+  template_shapes?: Record<string, string>;
   /** Local only: the console offers a one-click mock warehouse connection. */
   mock_connection: boolean;
   /** Lab only: the saved warehouse snapshots discovery can replay. */
