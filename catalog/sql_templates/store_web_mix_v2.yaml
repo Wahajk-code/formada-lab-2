@@ -1,0 +1,32 @@
+key: store_web_mix
+version: 2
+playbook: sales
+description: >
+  Share of net sales by channel (store or web) per week. A shift in mix changes where stock and marketing should go. Driver: average weekly net sales per channel over the last 4 weeks.
+archetypes:
+  sl: sales_line
+params:
+  weeks: { type: integer, default: 20, minimum: 14, maximum: 52 }
+sql: |
+  select {{sl.channel}} as entity,
+         date_trunc('week', {{sl.sale_date}})::date as period_start,
+         round(100 * sum({{sl.net_sales}}) / nullif(sum(sum({{sl.net_sales}})) over (partition by date_trunc('week', {{sl.sale_date}})::date), 0), 2) as value,
+         sum({{sl.units_sold}}) as n
+  from ({{sl}}) as sl
+  where {{sl.sale_date}} > dateadd('week', -%(weeks)s, %(period_end)s::date)
+    and {{sl.sale_date}} <= %(period_end)s::date
+  group by 1, 2
+  order by 1, 2
+  limit %(row_cap)s
+drivers:
+  net_sales:
+    exposure: weekly_net_sales
+    sql: |
+      select {{sl.channel}} as entity,
+             round(sum({{sl.net_sales}}) / 4, 2) as weekly_net_sales
+      from ({{sl}}) as sl
+      where {{sl.sale_date}} > dateadd('week', -4, %(period_end)s::date)
+        and {{sl.sale_date}} <= %(period_end)s::date
+      group by 1
+      order by 1
+      limit %(row_cap)s
