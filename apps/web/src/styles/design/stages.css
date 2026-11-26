@@ -940,3 +940,6 @@ button.rv-tile { width: 100%; text-align: left; font: inherit; color: inherit; c
 /* Metrics by role: this role's own measures first, then the others. */
 .metric-group { grid-column: 1 / -1; margin: 12px 0 4px; font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--fd-secondary); }
 .metric-group:first-child { margin-top: 0; }
+
+/* One-click explain, beside the @ on every card, field and fact. */
+.card-float .card-explain { display: inline-flex; align-items: center; gap: 4px; height: 28px; padding: 0 10px; font-size: 12.5px; font-weight: 600; color: #5534a6; }

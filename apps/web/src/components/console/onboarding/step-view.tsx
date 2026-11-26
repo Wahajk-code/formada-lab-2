@@ -940,6 +940,15 @@ export function StepView({
             starters={["Which roles will not get cards, and why?", "Explain this org web in plain words", "Simplify: who owns what?"]}
           />
         )}
+        {!locked && stepKey === "trial" && (
+          <StepChat
+            workspaceId={state.workspace.id}
+            stepName="trial"
+            can={false}
+            runId={state.trial?.run_id ?? null}
+            starters={["Which roles produced no cards, and why?", "Explain the weakest card", "Simplify the trial result"]}
+          />
+        )}
         {!locked && stepKey === "metrics" && (
           <StepChat
             workspaceId={state.workspace.id}

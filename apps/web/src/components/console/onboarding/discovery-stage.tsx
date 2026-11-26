@@ -163,6 +163,7 @@ export function DiscoveryStage({
       });
     },
     onMention: mention,
+    onExplain: (id) => explain(id),
     onRemove: async (id) => {
       const res = await removeDiscoveryJoin(workspaceId, stepId, id);
       if (res.ok) router.refresh();
@@ -302,6 +303,9 @@ export function DiscoveryStage({
     if (!target.length && everythingLocked) return say("Everything in this tab is locked and nothing is attached, so there is nothing I may change. Unlock a card or attach one with @, then try again.");
     rerun(text, { cards: target, attached: attachedOf(target) });
   };
+
+  // One click: attach the item and ask for a plain-words explanation of it.
+  const explain = (id: string) => ask("Explain this in plain words: what it is, why it matters, and what I should check.", { history: chat.turns, cards: idsToSend([id], context), attached: attachedOf([id]) });
 
   // Edit a question in place: ask it again from that message on, and clear what came after it.
   const resend = (index: number, text: string) => {

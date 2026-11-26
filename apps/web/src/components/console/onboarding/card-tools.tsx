@@ -31,6 +31,8 @@ export type CardCtx = {
   tables: string[];
   onLock: (id: string, lock: boolean) => void;
   onMention: (id: string) => void;
+  /** Attach the item and ask for a plain-words explanation in one step. */
+  onExplain?: (id: string) => void;
   /** Returns an error message, or null when saved. */
   onSave: (id: string, fields: Record<string, unknown>) => Promise<string | null>;
   /** Relationships only. Both return an error message, or null when done. */
@@ -76,6 +78,11 @@ export function CardBar({ id, ctx, join = false }: { id: string; ctx: CardCtx; j
               </button>
             )}
           </>
+        )}
+        {ctx.onExplain && (
+          <button type="button" className="card-explain" disabled={ctx.busy} onClick={() => ctx.onExplain?.(id)} title="Ask the assistant to explain this in plain words">
+            <Icon name="sparkles" size={14} /> Explain
+          </button>
         )}
         <button
           type="button"

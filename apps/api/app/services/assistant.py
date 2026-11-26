@@ -581,14 +581,52 @@ def mapping_mentions(links: list[dict[str, Any]], ids: list[str]) -> list[dict[s
     return found
 
 
+TRIAL_CARDS = 40  # the most cards of the trial run the chat is given
+TRIAL_NOTES = 15  # rejections and dropped signals listed
+
+
+async def _trial_context(tenant_id: uuid.UUID) -> dict[str, Any] | None:
+    """The latest trial run as the chat reads it: how it went, every card (what, so what, now
+    what and the numbers behind it), what the validator rejected and which signals were dropped.
+    No prompts or raw AI answers (they are large, and the cards say what mattered). None when
+    nothing has run yet or the run cannot be read: the chat then answers without it."""
+    from app.services import console as console_service  # late: console imports much of the app
+
+    try:
+        async with tenant_tx("service", tenant_id) as s:
+            run = await s.scalar(collab.TRIAL_RUN)
+        if run is None:
+            return None
+        detail = await console_service.run_detail(tenant_id, run.id)
+    except Exception as exc:
+        log.warning("assistant.trial_context_failed", error=str(exc)[:200])
+        return None
+    keep = ("id", "role", "title", "status", "what", "so_what", "now_what", "impact", "impact_unit",
+            "confidence", "metric", "entity", "signal_kind", "current_value", "baseline_mean",
+            "threshold", "change_vs_baseline_pct", "unit")  # fmt: skip
+    dropped = [x for x in detail["signals"] if x["status"] not in ("carded", "selected")]
+    return {
+        "run": detail["run"],
+        "scorecard": detail.get("scorecard"),
+        "cards": [{k: c.get(k) for k in keep} for c in detail["cards"][:TRIAL_CARDS]],
+        "cards_total": len(detail["cards"]),
+        "rejected_by_the_validator": detail["rejections"][:TRIAL_NOTES],
+        "signals_dropped": dropped[:TRIAL_NOTES],
+        "signals_total": len(detail["signals"]),
+    }
+
+
 def proposal_mentions(ctx: dict[str, Any], ids: list[str]) -> list[dict[str, Any]]:
     """The org roles (`r:<ref>`) and metrics (`x:<key>`) attached with @, read from the proposals
     already in the context, so a question about "it" has the whole item and its owners to read."""
     roles = {str(r.get("ref")): r for r in (ctx.get("org_proposal") or {}).get("roles", [])}
     metrics = {str(m.get("key")): m for m in (ctx.get("metrics_proposal") or {}).get("metrics", [])}
+    cards = {str(c.get("id")): c for c in (ctx.get("trial_run") or {}).get("cards", [])}
     found: list[dict[str, Any]] = []
     for mid in ids:
-        if mid.startswith("r:") and mid[2:] in roles:
+        if mid.startswith("k:") and mid[2:] in cards:
+            found.append({"card": mid, "kind": "trial card", **cards[mid[2:]]})
+        elif mid.startswith("r:") and mid[2:] in roles:
             found.append({"card": mid, "kind": "org role", **roles[mid[2:]]})
         elif mid.startswith("x:") and mid[2:] in metrics:
             found.append({"card": mid, "kind": "metric on the plan", **metrics[mid[2:]]})
@@ -596,11 +634,14 @@ def proposal_mentions(ctx: dict[str, Any], ids: list[str]) -> list[dict[str, Any
 
 
 async def team_context_for(
-    tenant_id: uuid.UUID, cards: list[str] | None = None
+    tenant_id: uuid.UUID, cards: list[str] | None = None, step: str | None = None
 ) -> tuple[dict[str, Any], list[str]]:
     """The context the team chat is given, with the items attached by @ read in full. Returns the
     context and the attached ids it could not read."""
     ctx = await _team_context(tenant_id)
+    if step == "trial":
+        # Only on the trial page: the run's cards add tokens to every question that carries them.
+        ctx["trial_run"] = await _trial_context(tenant_id)
     missing: list[str] = []
     if cards:
         from app.services import onboarding_items
@@ -608,8 +649,8 @@ async def team_context_for(
         # Cards the team mentioned with @: the chat answers about exactly these. Mapping links
         # (m:) come from the mapping already in the context; the rest from discovery.
         found = mapping_mentions(ctx.get("links") or [], [c for c in cards if c.startswith("m:")])
-        found += proposal_mentions(ctx, [c for c in cards if c.startswith(("r:", "x:"))])
-        rest = [c for c in cards if not c.startswith(("m:", "r:", "x:"))]
+        found += proposal_mentions(ctx, [c for c in cards if c.startswith(("r:", "x:", "k:"))])
+        rest = [c for c in cards if not c.startswith(("m:", "r:", "x:", "k:"))]
         if rest:
             found += await onboarding_items.card_context(tenant_id, rest)
         ctx["mentioned_cards"] = found
@@ -623,7 +664,7 @@ async def team_ask(
     tenant_id: uuid.UUID, step: str, question: str, history: list[Turn],
     cards: list[str] | None = None,
 ) -> dict[str, Any]:  # fmt: skip
-    ctx, missing = await team_context_for(tenant_id, cards)
+    ctx, missing = await team_context_for(tenant_id, cards, step)
     out, used = await _call_full(tenant_id, "team", step, question, ctx, history)
     return {"answer": out.answer, **_check(out, ctx), "mentions_missing": missing,
             "usage": usage_view(used)}  # fmt: skip

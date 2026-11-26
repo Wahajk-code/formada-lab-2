@@ -280,7 +280,7 @@ export function SearchList<T>({ items, text, render, label, first = 12 }: { item
 // ---- tools for facts (measured, read-only) -----------------------------------------------------
 
 /** A fact can only be given to the chat. Same place and look as a card's tools. */
-export function FactBar({ id, ctx, note = "Measured" }: { id: string; ctx?: Pick<CardCtx, "mentioned" | "onMention">; note?: string | null }) {
+export function FactBar({ id, ctx, note = "Measured" }: { id: string; ctx?: Pick<CardCtx, "mentioned" | "onMention" | "onExplain">; note?: string | null }) {
   if (!ctx) return null;
   const asked = ctx.mentioned.has(id);
   return (
@@ -289,6 +289,11 @@ export function FactBar({ id, ctx, note = "Measured" }: { id: string; ctx?: Pick
         <span className="card-fact-note" title={note === "Measured" ? "Measured from the warehouse. It cannot be edited." : undefined}>
           <Icon name="chart-bar" size={13} /> {note}
         </span>
+      )}
+      {ctx.onExplain && (
+        <button type="button" className="card-explain" onClick={() => ctx.onExplain?.(id)} title="Ask the assistant to explain this in plain words">
+          <Icon name="sparkles" size={14} /> Explain
+        </button>
       )}
       <button type="button" className={cn("card-at", asked && "on")} disabled={asked} onClick={() => ctx.onMention(id)} aria-label={asked ? "In the chat" : "Add to chat"} title={asked ? "In the chat" : "Add to chat as context"}>
         @

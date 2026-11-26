@@ -2,9 +2,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any -- agent outputs are schema-checked JSON */
 
 import { useRouter } from "next/navigation";
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 
-import { askWorkspaceAI, reviseProposalItem } from "@/app/console-actions";
+import { askWorkspaceAI, loadRun, reviseProposalItem } from "@/app/console-actions";
 import { ChatJump } from "@/components/console/onboarding/chat-jump";
 import { EngineerChat } from "@/components/console/onboarding/engineer-chat";
 import type { AssistantTurn } from "@/lib/client-api";
@@ -21,6 +21,7 @@ import { contextOf, idsToSend, missingNote, questionWithMentions } from "@/lib/m
 const KIND = {
   org: { prefix: "r:", item: "role", items: "roles", scope: "Org Web" },
   metrics: { prefix: "x:", item: "measure", items: "measures", scope: "Metrics" },
+  trial: { prefix: "k:", item: "card", items: "cards", scope: "Trial run" },
 } as const;
 
 export function StepChat({
@@ -29,12 +30,15 @@ export function StepChat({
   step,
   can,
   starters,
+  runId,
 }: {
   workspaceId: string;
-  stepName: "org" | "metrics";
-  step: OnboardingStep | undefined;
+  stepName: "org" | "metrics" | "trial";
+  step?: OnboardingStep | undefined;
   can: boolean;
   starters: string[];
+  /** Trial only: the run whose cards can be attached. */
+  runId?: string | null;
 }) {
   const router = useRouter();
   const kind = KIND[stepName];
@@ -45,13 +49,27 @@ export function StepChat({
   const [mentioned, setMentioned] = useState<string[]>([]);
   const [dropped, setDropped] = useState<string[]>([]);
   const context = useMemo(() => contextOf(turns, dropped), [turns, dropped]);
+  // The trial's cards, so a card can be attached and asked about.
+  const [trialCards, setTrialCards] = useState<{ id: string; role: string; title: string }[]>([]);
+  useEffect(() => {
+    if (stepName !== "trial" || !runId) return;
+    let stop = false;
+    void loadRun(workspaceId, runId).then((res) => {
+      if (!stop && res.ok && res.data) setTrialCards(res.data.cards.map((c) => ({ id: c.id, role: c.role, title: c.title })));
+    });
+    return () => {
+      stop = true;
+    };
+  }, [stepName, runId, workspaceId]);
 
   const mentionables = useMemo(
     () =>
       stepName === "org"
         ? ((out?.roles ?? []) as any[]).map((r) => ({ id: `r:${r.ref}`, label: String(r.title), kind: "role", locked: false, note: "Given to the chat as context" }))
-        : ((out?.metrics ?? []) as any[]).map((m) => ({ id: `x:${m.key}`, label: String(m.name ?? m.key), kind: "measure", locked: false, note: "Given to the chat as context" })),
-    [out, stepName],
+        : stepName === "metrics"
+          ? ((out?.metrics ?? []) as any[]).map((m) => ({ id: `x:${m.key}`, label: String(m.name ?? m.key), kind: "measure", locked: false, note: "Given to the chat as context" }))
+          : trialCards.map((c) => ({ id: `k:${c.id}`, label: `${c.role}: ${c.title}`, kind: "card", locked: false, note: "Given to the chat as context" })),
+    [out, stepName, trialCards],
   );
   const mentions = mentioned.filter((id) => mentionables.some((m) => m.id === id));
   const labelFor = (id: string) => mentionables.find((m) => m.id === id)?.label ?? context.find((c) => c.id === id)?.label;
@@ -123,14 +141,14 @@ export function StepChat({
         turns={turns}
         pending=""
         thinking={thinking}
-        emptyTitle={stepName === "org" ? "What would you like to check on the org web?" : "What would you like to check on the metrics?"}
-        intro={`Ask about a ${kind.item}, or press @ to attach one. Ask me to explain or simplify, or start with /change to change it.`}
-        placeholder={stepName === "org" ? "Ask about a role…" : "Ask about a measure…"}
+        emptyTitle={stepName === "org" ? "What would you like to check on the org web?" : stepName === "metrics" ? "What would you like to check on the metrics?" : "What would you like to check on the trial?"}
+        intro={stepName === "trial" ? "Ask why a card was written, or press @ to attach one. Ask me to explain or simplify it." : `Ask about a ${kind.item}, or press @ to attach one. Ask me to explain or simplify, or start with /change to change it.`}
+        placeholder={stepName === "org" ? "Ask about a role…" : stepName === "metrics" ? "Ask about a measure…" : "Ask about a card…"}
         starters={starters}
         onAsk={(text) => ask(text)}
         onClear={clear}
         onResend={resend}
-        onChange={change}
+        onChange={stepName === "trial" ? undefined : change}
         context={context}
         onDropContext={(id) => setDropped((d) => [...d, id])}
         mentionables={mentionables}

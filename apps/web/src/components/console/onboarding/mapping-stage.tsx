@@ -96,7 +96,7 @@ export function MappingStage({ step, guide, workspaceId, can, actions }: { step:
     [out.archetypes],
   );
   const mentions = mentioned.filter((id) => mentionables.some((m) => m.id === id));
-  const at = { mentioned: new Set(mentions), onMention: (id: string) => setMentioned((cur) => (cur.includes(id) || cur.length >= 8 ? cur : [...cur, id])) };
+  const at = { mentioned: new Set(mentions), onMention: (id: string) => setMentioned((cur) => (cur.includes(id) || cur.length >= 8 ? cur : [...cur, id])), onExplain: (id: string) => explain(id) };
 
   // One conversation for the whole onboarding: each message remembers the page it was written on.
   const SCOPE = "Mapping";
@@ -122,6 +122,9 @@ export function MappingStage({ step, guide, workspaceId, can, actions }: { step:
       setThinking(false);
     });
   };
+
+  // One click: attach the link or field and ask for a plain-words explanation of it.
+  const explain = (id: string) => ask("Explain this in plain words: what it is, why it matters, and what I should check.", { history: turns, cards: idsToSend([id], context), attached: attachedOf([id]) });
 
   // "/change ...": the AI is authorised to change the link, whatever it thinks of the change. It acts
   // on the links and fields attached to this message, else on what is still in the context. The
