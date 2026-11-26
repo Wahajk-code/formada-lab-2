@@ -159,7 +159,8 @@ def fit_title(title: str) -> str:
 
 # Statistics words a manager should never meet on a card.
 JARGON = re.compile(
-    r"(z[- ]?score|standard deviation|percentile|baseline mean|excess_over_threshold|signal_kind)",
+    r"\b(z[- ]?score|standard deviation|percentile|baseline mean|"
+    r"excess_over_threshold|signal_kind)\b",
     re.IGNORECASE,
 )
 

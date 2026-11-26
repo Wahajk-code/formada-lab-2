@@ -307,6 +307,71 @@ async def rules_for_workspace(tenant_id: uuid.UUID) -> list[dict[str, Any]]:
         return await _rules_payload(s)
 
 
+RATING_MESSAGE = {
+    "useful": "Noted as useful.",
+    "not_relevant": "Noted as not relevant.",
+    "impossible": "Noted as something the role cannot act on.",
+    "wrong_number": "Noted. A wrong number is usually a mapping problem: check the mapping.",
+}
+
+
+async def rate_trial_card(
+    actor: str, tenant_id: uuid.UUID, card_id: uuid.UUID, rating: str, note: str | None
+) -> dict[str, Any]:
+    """Our team rates a card of the trial run. Not relevant and Cannot act propose a rule for Rule
+    review (nothing changes the card writer until it is accepted); every rating is written to the
+    audit log."""
+    if error := fb_rules.check_trial_rating(rating, note):
+        raise Invalid(error)
+    async with tenant_tx("service", tenant_id) as s:
+        card = await s.get(InsightCard, card_id)
+        if card is None:
+            raise NotFound("card")
+        role = await s.get(RoleNode, card.role_node_id)
+        metric_id = await _metric_id(s, card)
+        existing = [
+            fb_rules.ExistingRule(
+                r.role_node_id, r.rule_type, r.metric_id, r.fingerprint, r.status,
+                frozenset(r.source_feedback_ids or []),
+            )
+            for r in await s.scalars(select(FeedbackRule))
+        ]  # fmt: skip
+        proposal = fb_rules.trial_rating_rule(
+            rating,
+            note,
+            role_node_id=card.role_node_id,
+            role_title=role.title if role else "this role",
+            metric_id=metric_id,
+            metric_name=str(card.evidence.get("metric", "")),
+            fingerprint=card.fingerprint,
+            existing=existing,
+        )
+        rule_id: uuid.UUID | None = None
+        if proposal is not None:
+            rule = FeedbackRule(
+                tenant_id=tenant_id, role_node_id=proposal.role_node_id,
+                rule_type=proposal.rule_type, metric_id=proposal.metric_id,
+                fingerprint=proposal.fingerprint, text=proposal.text[:500],
+                source_feedback_ids=[], status="proposed",
+            )  # fmt: skip
+            s.add(rule)
+            await s.flush()
+            rule_id = rule.id
+        s.add(
+            AuditLog(
+                tenant_id=tenant_id, actor=actor, action=f"trial.rate.{rating}",
+                object_type="insight_card", object_id=str(card.id),
+                detail={"note": (note or "").strip()[:500],
+                        "rule_id": str(rule_id) if rule_id else None},
+            )
+        )  # fmt: skip
+    message = RATING_MESSAGE[rating]
+    if rule_id:
+        message += " A rule is proposed: accept it in Rule review."
+    return {"status": "ok", "rating": rating, "rule_id": str(rule_id) if rule_id else None,
+            "message": message}  # fmt: skip
+
+
 REVIEW = {"accept": ("proposed", "active"), "reject": ("proposed", "rejected"),
           "retire": ("active", "retired")}  # fmt: skip
 

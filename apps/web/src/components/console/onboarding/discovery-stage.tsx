@@ -19,7 +19,7 @@ import {
 import { AddJoin, CardBar, CardEditor, ChangeReview, GroupBar, type CardCtx } from "@/components/console/onboarding/card-tools";
 import { ChatJump } from "@/components/console/onboarding/chat-jump";
 import { appendTurns, truncateTurns, useChatTurns } from "@/lib/chat-store";
-import { contextOf, idsToSend, missingNote, questionWithMentions } from "@/lib/mentions";
+import { contextOf, idsToSend, missingNote, questionWithMentions, type ChatCommand } from "@/lib/mentions";
 import { cardId, cardList, groupIndex, type CardSuggestion } from "@/lib/discovery-cards";
 import { ViewDiagram } from "@/components/console/onboarding/view-diagram";
 import { EngineerChat } from "@/components/console/onboarding/engineer-chat";
@@ -307,6 +307,41 @@ export function DiscoveryStage({
   // One click: attach the item and ask for a plain-words explanation of it.
   const explain = (id: string) => ask("Explain this in plain words: what it is, why it matters, and what I should check.", { history: chat.turns, cards: idsToSend([id], context), attached: attachedOf([id]) });
 
+  // "/lock", "/unlock", "/remove": the same actions as the card buttons, on what is attached (or still in
+  // the context). No AI: it is done, and the reply says exactly what happened.
+  const command = (cmd: ChatCommand, rest: string) => {
+    const named = mentions.length ? mentions : context.map((c) => c.id);
+    const ids = named.filter((id) => !id.startsWith("f:")).slice(0, 8);
+    const typed = `/${cmd}${rest ? ` ${rest}` : ""}`;
+    const say = (reply: string) => push(section, { role: "user", text: typed, intent: "revise", attached: attachedOf(named) }, { role: "assistant", text: reply });
+    if (cmd === "confirm") return say("Discovery has nothing to confirm one by one. Unlock a card to change it, or complete the step when you are happy with it. Links are confirmed in Mapping.");
+    if (!can) return say("This step cannot be changed right now: it is complete, or it has no open proposal.");
+    if (!ids.length) return say(`Attach what you want to ${cmd} with @, then send /${cmd} again.`);
+    setThinking(true);
+    start(async () => {
+      const done: string[] = [];
+      const failed: string[] = [];
+      for (const id of ids) {
+        const name = labelFor(id) ?? context.find((c) => c.id === id)?.label ?? id;
+        if (cmd === "remove" && !(id.startsWith("l:") || id.startsWith("j:"))) {
+          failed.push(`${name}: only a link or a relationship can be removed`);
+          continue;
+        }
+        const res = cmd === "remove" ? await removeDiscoveryJoin(workspaceId, stepId, id) : await lockDiscoveryCard(workspaceId, stepId, id, cmd === "lock");
+        if (res.ok) done.push(name);
+        else failed.push(`${name}: ${res.error}${cmd === "remove" && /locked/.test(res.error) ? " (send /unlock first)" : ""}`);
+      }
+      const verb = { lock: "Locked", unlock: "Unlocked", remove: "Removed" }[cmd as "lock" | "unlock" | "remove"];
+      push(
+        section,
+        { role: "user", text: typed, intent: "revise", cards: ids, attached: attachedOf(named) },
+        { role: "assistant", text: [done.length ? `${verb}: ${done.join(", ")}.` : "", failed.length ? `Not done: ${failed.join("; ")}.` : ""].filter(Boolean).join(" ") },
+      );
+      setThinking(false);
+      router.refresh();
+    });
+  };
+
   // Edit a question in place: ask it again from that message on, and clear what came after it.
   const resend = (index: number, text: string) => {
     const earlier = chat.turns[index];
@@ -583,6 +618,8 @@ export function DiscoveryStage({
           onAsk={(text) => ask(text)}
           onRerun={rerun}
           onChange={change}
+          commands={["lock", "unlock", "remove"]}
+          onCommand={command}
           context={context}
           onDropContext={(id) => setDropped((d) => [...d, id])}
         />

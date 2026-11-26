@@ -57,11 +57,11 @@ ACTION_VERBS = frozenset(
     ]
 )
 CONSULTANCY = re.compile(
-    r"(leverage|synerg\w*|holistic|stakeholders?|paradigm|going forward|commission|ascertain|"
-    r"facilitate|optimi[sz]e|mitigate|utili[sz]e)",
+    r"\b(leverage|synerg\w*|holistic|stakeholders?|paradigm|going forward|commission|ascertain|"
+    r"facilitate|optimi[sz]e|mitigate|utili[sz]e)\b",
     re.IGNORECASE,
 )
-BARE_DECIMAL = re.compile(r"\d+\.\d+(?=\s*[,.;]|\s*$)")
+BARE_DECIMAL = re.compile(r"\b\d+\.\d+(?=\s*[,.;]|\s*$)")
 
 
 def _syllables(word: str) -> int:

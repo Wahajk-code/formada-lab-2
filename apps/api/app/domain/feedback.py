@@ -109,6 +109,55 @@ def propose_rules(
 
 
 # ---------------------------------------------------------------------------------------------
+# The trial run: our team rates a card before go-live (a review aid that can propose a rule)
+# ---------------------------------------------------------------------------------------------
+
+TRIAL_RATINGS = ("useful", "not_relevant", "impossible", "wrong_number")
+
+
+def check_trial_rating(rating: str, note: str | None) -> str | None:
+    """Error message, or None. Saying why is required where the rating means something is wrong."""
+    if rating not in TRIAL_RATINGS:
+        return f"unknown rating {rating!r}"
+    if rating in ("impossible", "wrong_number") and not (note or "").strip():
+        return "say why in a few words"
+    return None
+
+
+def trial_rating_rule(
+    rating: str,
+    note: str | None,
+    *,
+    role_node_id: uuid.UUID,
+    role_title: str,
+    metric_id: uuid.UUID | None,
+    metric_name: str,
+    fingerprint: str,
+    existing: Iterable[ExistingRule],
+) -> RuleProposal | None:
+    """The rule a rating proposes, or None. Not relevant proposes a downweight of the measure for
+    the role; Cannot act proposes a forbid on this exact problem. Useful and Wrong number propose
+    nothing (a wrong number is a data problem to fix in Mapping, not a rule). Nothing is proposed
+    when the same rule is already proposed or active. A person still accepts it in Rule review."""
+    live = [
+        r for r in existing if r.status in ("proposed", "active") and r.role_node_id == role_node_id
+    ]
+    why = (note or "").strip()
+    if rating == "not_relevant" and metric_id is not None:
+        if any(r.rule_type == "downweight" and r.metric_id == metric_id for r in live):
+            return None
+        text = f"Downweight {metric_name} for {role_title}: judged not relevant in the trial"
+        return RuleProposal(
+            role_node_id, "downweight", metric_id, None, f"{text}. {why}".strip(), []
+        )
+    if rating == "impossible":
+        if any(r.rule_type == "forbid" and r.fingerprint == fingerprint for r in live):
+            return None
+        return RuleProposal(role_node_id, "forbid", metric_id, fingerprint, why, [])
+    return None
+
+
+# ---------------------------------------------------------------------------------------------
 # Console insights (ADR 0025): what a workspace keeps rejecting, and where to look
 # ---------------------------------------------------------------------------------------------
 

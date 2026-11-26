@@ -821,6 +821,8 @@ export const consoleApi = {
   workspace: (id: string) => request<WorkspaceDetail>(`/workspaces/${id}`),
   run: (id: string, runId: string) =>
     request<RunDetail>(`/workspaces/${id}/runs/${runId}`),
+  rateTrialCard: (id: string, cardId: string, rating: string, note: string) =>
+    send<{ status: string; rating: string; rule_id: string | null; message: string }>("POST", `/workspaces/${id}/trial/cards/${cardId}/rate`, { rating, note }),
   runNow: (id: string) => send("POST", `/workspaces/${id}/run`),
   flows: () => request<FlowsOverview>("/flows"),
   flowBoard: (key: string) => request<FlowBoardData>(`/flows/${key}/board`),

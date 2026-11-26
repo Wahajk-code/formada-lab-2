@@ -4,14 +4,14 @@
 import { useRouter } from "next/navigation";
 import { useMemo, useRef, useState, useTransition } from "react";
 
-import { askWorkspaceAI, confirmMappingLink, editProposalItem, reviseProposalItem } from "@/app/console-actions";
+import { askWorkspaceAI, confirmMappingLink, editProposalItem, reviseProposalItem, unlockProposalItem } from "@/app/console-actions";
 import { ChatJump } from "@/components/console/onboarding/chat-jump";
 import { EngineerChat } from "@/components/console/onboarding/engineer-chat";
 import { WORDS } from "@/components/console/onboarding/mapping-guide";
 import { breakable, FactBar, fmt, Fold, humanDates, humanName, Lines, Section, shortName, Status, Sub, type Tone } from "@/components/console/onboarding/review-kit";
 import { Icon } from "@/components/ui/icon";
 import { appendTurns, truncateTurns, useChatTurns } from "@/lib/chat-store";
-import { contextOf, idsToSend, missingNote, questionWithMentions } from "@/lib/mentions";
+import { contextOf, idsToSend, missingNote, questionWithMentions, type ChatCommand } from "@/lib/mentions";
 import type { AssistantTurn } from "@/lib/client-api";
 import type { OnboardingGuide, OnboardingStep } from "@/lib/console-api";
 import { cn } from "@/lib/utils";
@@ -142,19 +142,77 @@ export function MappingStage({ step, guide, workspaceId, can, actions }: { step:
     start(async () => {
       const done: string[] = [];
       let failed: string | null = null;
+      // Each change makes a new proposal: the next one must start from it, not from the one just replaced.
+      let current = step.id;
       for (const shape of shapes) {
-        const res = await reviseProposalItem(workspaceId, "mapping", step.id, shape, instruction);
+        const res = await reviseProposalItem(workspaceId, "mapping", current, shape, instruction);
         if (!res.ok) {
           failed = res.error ?? "Failed";
           break;
         }
         const d = res.data as any;
+        if (d?.step_id) current = d.step_id;
         const notes = [...(d?.errors ?? []).map((e: string) => `Error: ${e}`), ...(d?.warnings ?? []).map((w: string) => `Note: ${w}`)].slice(0, 2);
         done.push(`${WORDS[shape] ?? shape}${notes.length ? ` (${notes.join(" ")})` : ""}`);
       }
       push(
         { role: "user", text: `/change ${text}`, intent: "revise", cards: mine, attached: attachedOf(named) },
         { role: "assistant", text: failed ? failed : `Changed ${done.join(" and ")} as a new proposal. Only ${done.length === 1 ? "this link" : "these links"} changed, and ${done.length === 1 ? "it needs" : "they need"} a new confirmation.` },
+      );
+      setThinking(false);
+      router.refresh();
+    });
+  };
+
+  // "/confirm", "/unlock": the same actions as the buttons, on the links and fields attached. A field is
+  // confirmed by raising it to high; a link is confirmed as it stands. No AI: the reply says what happened.
+  const command = (cmd: ChatCommand, rest: string) => {
+    const named = mentions.length ? mentions : context.map((c) => c.id);
+    const mine = named.filter((id) => id.startsWith("m:")).slice(0, 8);
+    const typed = `/${cmd}${rest ? ` ${rest}` : ""}`;
+    const say = (reply: string) => push({ role: "user", text: typed, intent: "revise", attached: attachedOf(named) }, { role: "assistant", text: reply });
+    if (cmd === "lock" || cmd === "remove") return say(`Mapping has no /${cmd}. Use /confirm to keep a link, /unlock to let it change again, or /change to have it changed.`);
+    if (!can) return say("This step cannot be changed right now: it is complete, or it has no open proposal.");
+    if (!mine.length) return say(`Attach the link or the field with @, then send /${cmd} again.`);
+    setThinking(true);
+    start(async () => {
+      const said: string[] = [];
+      const notes: string[] = [];
+      // Each change makes a new proposal: the next one must start from it, not from the one just replaced.
+      let current = step.id;
+      const shapes = [...new Set(mine.map((id) => id.slice(2).split(".")[0]))];
+      for (const shape of shapes) {
+        const link = (out.archetypes as any[]).find((a) => a.archetype === shape);
+        const name = WORDS[shape] ?? shape;
+        const fields = mine.filter((id) => id.startsWith(`m:${shape}.`)).map((id) => id.slice(2).split(".")[1]);
+        const whole = mine.includes(`m:${shape}`);
+        let res: { ok: boolean; error?: string; data?: any } | null = null;
+        if (cmd === "unlock") {
+          res = await unlockProposalItem(workspaceId, "mapping", current, shape);
+          if (res.ok) said.push(`${name} unlocked (a new analysis may change it again)`);
+        } else if (fields.length && link) {
+          const have = new Set((link.fields ?? []).map((f: any) => f.field));
+          const unknown = fields.filter((f) => !have.has(f));
+          if (unknown.length) notes.push(`${name}: no field ${unknown.join(", ")}`);
+          res = await editProposalItem(workspaceId, "mapping", current, shape, {
+            ...link,
+            fields: (link.fields ?? []).map((f: any) => (fields.includes(f.field) ? { ...f, confidence: "high", reason: `${String(f.reason ?? "").replace(/\s*Confirmed by the team\.?$/, "")} Confirmed by the team.`.trim() } : f)),
+          });
+          if (res.ok) said.push(`${name}: ${fields.join(", ")} confirmed as high confidence`);
+          if (res.ok && whole) notes.push(`${name}: the link itself needs its own /confirm now, because the field change made a new proposal`);
+        } else if (whole) {
+          res = await confirmMappingLink(workspaceId, current, shape);
+          if (res.ok) said.push(`${name} confirmed`);
+        }
+        if (res && !res.ok) {
+          notes.push(`${name}: ${res.error}`);
+          break;
+        }
+        if (res?.data?.step_id) current = res.data.step_id;
+      }
+      push(
+        { role: "user", text: typed, intent: "revise", cards: mine, attached: attachedOf(named) },
+        { role: "assistant", text: [said.length ? `${said.join("; ")}.` : "", notes.length ? `Note: ${notes.join("; ")}.` : ""].filter(Boolean).join(" ") || "Nothing was changed." },
       );
       setThinking(false);
       router.refresh();
@@ -511,6 +569,8 @@ export function MappingStage({ step, guide, workspaceId, can, actions }: { step:
           onClear={clear}
           onResend={resend}
           onChange={change}
+          commands={["confirm", "unlock", "lock", "remove"]}
+          onCommand={command}
           context={context}
           onDropContext={(id) => setDropped((d) => [...d, id])}
           mentionables={mentionables}

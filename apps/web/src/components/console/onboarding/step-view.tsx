@@ -877,6 +877,8 @@ export function StepView({
               runId={state.trial?.run_id ?? null}
               running={state.trial?.status === "running"}
               roleCount={state.draft.nodes.length}
+              can={editable}
+              currency={state.workspace.currency}
             />
             <GoLiveBar state={state} can={can} />
           </>

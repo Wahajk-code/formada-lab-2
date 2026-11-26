@@ -585,6 +585,21 @@ class JoinAddIn(BaseModel):
     references_column: str = Field(max_length=200)
 
 
+class TrialRateIn(BaseModel):
+    rating: str = Field(max_length=20)
+    note: str = Field(default="", max_length=500)
+
+
+@router.post("/workspaces/{tenant_id}/trial/cards/{card_id}/rate")
+async def rate_trial_card(
+    tenant_id: uuid.UUID, card_id: uuid.UUID, body: TrialRateIn, staff: ConfigWriter
+) -> dict[str, Any]:
+    """Rate a card of the trial run. Not relevant and Cannot act propose a rule for Rule review."""
+    return await feedback_service.rate_trial_card(
+        staff.actor, tenant_id, card_id, body.rating, body.note
+    )
+
+
 class LinkAddIn(BaseModel):
     from_table: str = Field(max_length=200)
     keys: str = Field(max_length=200)

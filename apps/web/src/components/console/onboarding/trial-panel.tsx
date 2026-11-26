@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { loadRun } from "@/app/console-actions";
+import { TrialCardReview, TrialTune } from "@/components/console/onboarding/trial-tools";
 import { CardDetail } from "@/components/onboarding/card-detail";
 import { Icon } from "@/components/ui/icon";
 import type { RunDetail } from "@/lib/console-api";
@@ -49,11 +50,15 @@ export function TrialPanel({
   runId,
   running,
   roleCount,
+  can,
+  currency,
 }: {
   workspaceId: string;
   runId: string | null;
   running: boolean;
   roleCount: number;
+  can: boolean;
+  currency: string;
 }) {
   const router = useRouter();
   const [run, setRun] = useState<RunDetail | null>(null);
@@ -162,11 +167,15 @@ export function TrialPanel({
             <h4>Insight previews</h4>
             <div className="stage-trial-cards">
               {run.cards.map((c, i) => (
-                <CardDetail key={c.id} card={c} open={i === 0} />
+                <div key={c.id}>
+                  <CardDetail card={c} open={i === 0} />
+                  <TrialCardReview workspaceId={workspaceId} card={c} can={can} />
+                </div>
               ))}
             </div>
           </div>
         )}
+        {succeeded && !live && <TrialTune workspaceId={workspaceId} can={can} currency={currency} />}
         {run.rejections.length > 0 && (
           <p className="stage-helper">{run.rejections.length} cards were rejected by the checks and are not shown.</p>
         )}

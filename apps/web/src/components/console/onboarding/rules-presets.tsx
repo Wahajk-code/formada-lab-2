@@ -7,12 +7,13 @@ import { applyRulesPreset } from "@/app/console-actions";
 import { cn } from "@/lib/utils";
 
 /** Same values as PRESETS in apps/api/app/domain/config.py. */
-const PRESETS = {
+export const PRESETS = {
   fewer: { label: "Fewer", min_signal_impact: 1000, max_open_cards_per_role: 3, top_signals_per_role: 5, help: "Only the biggest problems" },
   balanced: { label: "Balanced", min_signal_impact: 250, max_open_cards_per_role: 5, top_signals_per_role: 8, help: "Store-level problems too" },
   more: { label: "More", min_signal_impact: 100, max_open_cards_per_role: 8, top_signals_per_role: 12, help: "Almost everything" },
 } as const;
-type Name = keyof typeof PRESETS;
+export type PresetName = keyof typeof PRESETS;
+type Name = PresetName;
 
 /** Business rules inside Role metrics (decision 2): one click sets the money floor, cards per
  * person and problems reviewed per person. Fine-tune in the rules editor or Config & rules. */

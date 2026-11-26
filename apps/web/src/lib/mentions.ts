@@ -44,8 +44,28 @@ const CHANGE_VERBS = "change|set|make|turn|update|fix|replace|switch|use|remove|
 export function looksLikeChange(text: string): boolean {
   const t = text.trim();
   if (!t || isChange(t) || t.endsWith("?")) return false;
-  if (/^(what|why|how|can|could|does|do|is|are|should|would|which|who|when|where|explain|tell|show|list|describe|compare)/i.test(t)) return false;
+  if (/^(what|why|how|can|could|does|do|is|are|should|would|which|who|when|where|explain|tell|show|list|describe|compare)\b/i.test(t)) return false;
   return new RegExp(`(^|[,;.:]\\s*|\\band\\s+|\\bthen\\s+)(please\\s+)?(${CHANGE_VERBS})\\b`, "i").test(t);
+}
+/** The commands that act directly on what is attached (no AI): the same actions as the buttons. */
+export type ChatCommand = "confirm" | "lock" | "unlock" | "remove";
+export const DIRECT_COMMANDS: ChatCommand[] = ["confirm", "lock", "unlock", "remove"];
+
+/** "/unlock" or "/remove this" -> the command and what follows it. /change is handled separately. */
+export function parseCommand(text: string): { cmd: ChatCommand; rest: string } | null {
+  const m = /^\/(confirm|lock|unlock|remove)(?:\s+([\s\S]*))?$/i.exec(text.trim());
+  return m ? { cmd: m[1].toLowerCase() as ChatCommand, rest: (m[2] ?? "").trim() } : null;
+}
+
+/** "confirm it", "unlock this", "approve po_id": a plain message that means one of the commands. */
+export function impliedCommand(text: string): ChatCommand | null {
+  const t = text.trim();
+  if (!t || t.startsWith("/") || t.endsWith("?")) return null;
+  if (/^(what|why|how|can|could|does|do|is|are|should|would|which|who|when|where|explain|tell|show|list|describe|compare)\b/i.test(t)) return null;
+  const m = /^(?:please\s+)?(confirm|approve|unlock|lock|remove|delete)\b/i.exec(t);
+  if (!m) return null;
+  const verb = m[1].toLowerCase();
+  return verb === "approve" ? "confirm" : verb === "delete" ? "remove" : (verb as ChatCommand);
 }
 /** The message without the word. */
 export const withoutChangeWord = (text: string) => text.trim().replace(/^\/change\s*/i, "").trim();

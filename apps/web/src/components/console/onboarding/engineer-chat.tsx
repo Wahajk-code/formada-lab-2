@@ -6,7 +6,7 @@ import { ChatTurn } from "@/components/console/onboarding/chat-turn";
 import { ThinkingMark } from "@/components/console/onboarding/thinking-mark";
 import { Icon } from "@/components/ui/icon";
 import type { AssistantTurn } from "@/lib/client-api";
-import { CHANGE_WORD, isChange, looksLikeChange, withoutChangeWord } from "@/lib/mentions";
+import { CHANGE_WORD, impliedCommand, isChange, looksLikeChange, parseCommand, withoutChangeWord, type ChatCommand } from "@/lib/mentions";
 
 export type RerunConfig = {
   disabled: boolean;
@@ -45,6 +45,9 @@ type Props = {
   onDropContext?: (id: string) => void;
   /** The message started with /change: the AI is authorised to propose the change. */
   onChange?: (text: string) => void;
+  /** Direct commands (/confirm, /lock, /unlock, /remove) this page supports; they act on what is attached. */
+  commands?: ChatCommand[];
+  onCommand?: (cmd: ChatCommand, rest: string) => void;
 };
 
 /** `note` replaces the chip's hover text (for example "Measured: read-only"). */
@@ -102,6 +105,8 @@ function Chat({
   context = [],
   onDropContext,
   onChange,
+  commands = [],
+  onCommand,
   draft,
   setDraft,
   expanded,
@@ -117,13 +122,14 @@ function Chat({
   const [picker, setPicker] = useState<{ query: string; start: number; end: number; index: number } | null>(null);
   // A message that reads as an order to change something is not sent as a question: the chat cannot
   // change anything from a plain message. The person chooses to send it as a change or as a question.
-  const [offer, setOffer] = useState<string | null>(null);
-  const sendOffer = (asChange: boolean) => {
+  const [offer, setOffer] = useState<{ text: string; cmd: "change" | ChatCommand } | null>(null);
+  const sendOffer = (asCommand: boolean) => {
     if (offer == null) return;
-    const text = offer;
+    const { text, cmd } = offer;
     setOffer(null);
     setDraft("");
-    if (asChange && onChange) onChange(text);
+    if (asCommand && cmd === "change" && onChange) onChange(text);
+    else if (asCommand && cmd !== "change" && onCommand) onCommand(cmd, text);
     else onAsk(text);
     onMentions?.([]);
   };
@@ -153,8 +159,20 @@ function Chat({
     const text = draft.trim();
     if (!text || busy) return;
     if (intent === "rerun" && (!rerun || rerun.disabled || !onRerun)) return;
+    const typed = parseCommand(text);
+    if (intent === "ask" && typed && onCommand && commands.includes(typed.cmd)) {
+      setDraft("");
+      onCommand(typed.cmd, typed.rest);
+      onMentions?.([]);
+      return;
+    }
+    const implied = impliedCommand(text);
+    if (intent === "ask" && implied && onCommand && commands.includes(implied)) {
+      setOffer({ text, cmd: implied });
+      return;
+    }
     if (intent === "ask" && onChange && looksLikeChange(text)) {
-      setOffer(text);
+      setOffer({ text, cmd: "change" });
       return;
     }
     setDraft("");
@@ -275,11 +293,14 @@ function Chat({
           {offer != null && (
             <div className="change-offer" role="group" aria-label="Send as a change?">
               <p>
-                <Icon name="pen" size={15} /> That reads as a change. The assistant only reads from a plain message, so it would answer that it cannot do it.
+                <Icon name="pen" size={15} />{" "}
+                {offer.cmd === "change"
+                  ? "That reads as a change. The assistant only reads from a plain message, so it would answer that it cannot do it."
+                  : `That reads as /${offer.cmd}. Run it on what you attached? The assistant does not need to think about it.`}
               </p>
               <div className="change-offer-buttons">
                 <button type="button" className="btn btn-primary" onClick={() => sendOffer(true)}>
-                  <Icon name="check" size={15} /> <span>Propose this change</span>
+                  <Icon name="check" size={15} /> <span>{offer.cmd === "change" ? "Propose this change" : `Run /${offer.cmd}`}</span>
                 </button>
                 <button type="button" className="btn btn-secondary" onClick={() => sendOffer(false)}>
                   Ask it as a question
@@ -379,6 +400,14 @@ function Chat({
             <Icon name="pen" size={15} />
             <span>
               Start a message with <b>{CHANGE_WORD}</b> to have the AI change what you attached, whatever it thinks of the change. You see every change before it is applied.
+            </span>
+          </p>
+        )}
+        {onCommand && commands.length > 0 && (
+          <p className="engineer-chat-note">
+            <Icon name="check" size={15} />
+            <span>
+              Or do it directly on what you attached: {commands.map((c) => `/${c}`).join(", ")}. No AI is involved, and the reply says what was done.
             </span>
           </p>
         )}

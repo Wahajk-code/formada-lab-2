@@ -390,6 +390,10 @@ export async function editRulesProposal(id: string, stepId: string, changes: Rec
   return attempt(() => consoleApi.editRules(id, stepId, changes), ob(id));
 }
 
+export async function rateTrialCard(id: string, cardId: string, rating: string, note: string) {
+  return attempt(() => consoleApi.rateTrialCard(id, cardId, rating, note), []);
+}
+
 export async function loadRun(id: string, runId: string) {
   return attempt(() => consoleApi.run(id, runId), []);
 }
