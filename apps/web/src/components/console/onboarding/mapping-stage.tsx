@@ -54,6 +54,10 @@ function status(l: Link): { tone: Tone; word: string } {
 const firstSentence = (s: string) => s.split(/(?<=\.)\s/)[0] ?? s;
 const CONF: Record<string, Tone> = { high: "ready", medium: "partial", low: "fail" };
 
+/** What the AI is told when a link fails its check: fix what the errors point to, nothing else. */
+const repairInstruction = (errors: string[]) =>
+  `The check on this link failed with: ${errors.slice(0, 4).join(" | ")}. Fix only what these errors point to. Keep every field and rule that already passes, and change nothing else.`;
+
 export function MappingStage({ step, guide, workspaceId, can, actions }: { step: OnboardingStep; guide: OnboardingGuide | null; workspaceId: string; can: boolean; actions?: React.ReactNode }) {
   const router = useRouter();
   const out = step.output as any;
@@ -385,6 +389,21 @@ export function MappingStage({ step, guide, workspaceId, can, actions }: { step:
                           <li key={e}>{e}</li>
                         ))}
                       </ul>
+                      {can && !unmappable && (
+                        <>
+                          <button
+                            type="button"
+                            className="btn btn-secondary"
+                            disabled={busy}
+                            title="The AI sees this link and the errors, and may change nothing else. The link is checked again."
+                            onClick={() => start(async () => saved(key, await reviseProposalItem(workspaceId, "mapping", step.id, key, repairInstruction(check.errors as string[])), "The AI changed this link to fix the errors, and it was checked again."))}
+                          >
+                            <Icon name="sparkles" size={17} />
+                            <span>{busy ? "Fixing…" : "Ask the AI to fix this"}</span>
+                          </button>
+                          <p className="rv-muted">Only this link changes. If it still fails, edit the query yourself or say what to change in the chat.</p>
+                        </>
+                      )}
                     </div>
                   )}
 

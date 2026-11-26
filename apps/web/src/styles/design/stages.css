@@ -896,6 +896,7 @@ button.rv-tile { width: 100%; text-align: left; font: inherit; color: inherit; c
 .vd-box.is-on { border-color: #6f4ec9; box-shadow: 0 0 0 3px #6f4ec922; }
 .vd-wire path { fill: none; stroke: #9a8bc4; stroke-width: 1.8; }
 .vd-wire.is-team path { stroke: #3b82a0; stroke-dasharray: 6 4; }
+.vd-wire.is-warn path:not(.vd-hit) { stroke: #c2410c; stroke-dasharray: 2 4; }
 .vd-wire.is-on path { stroke: #6f4ec9; stroke-width: 2.8; }
 .vd-wire path.vd-hit { stroke: transparent; stroke-width: 14; cursor: pointer; pointer-events: stroke; }
 .vd-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }

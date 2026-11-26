@@ -823,6 +823,8 @@ export const consoleApi = {
     request<RunDetail>(`/workspaces/${id}/runs/${runId}`),
   rateTrialCard: (id: string, cardId: string, rating: string, note: string) =>
     send<{ status: string; rating: string; rule_id: string | null; message: string }>("POST", `/workspaces/${id}/trial/cards/${cardId}/rate`, { rating, note }),
+  rewriteTrialCard: (id: string, cardId: string, instruction: string) =>
+    send<{ status: string; card: { id: string; title: string }; model: string }>("POST", `/workspaces/${id}/trial/cards/${cardId}/rewrite`, { instruction }),
   runNow: (id: string) => send("POST", `/workspaces/${id}/run`),
   flows: () => request<FlowsOverview>("/flows"),
   flowBoard: (key: string) => request<FlowBoardData>(`/flows/${key}/board`),

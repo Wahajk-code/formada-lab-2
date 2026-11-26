@@ -339,7 +339,9 @@ def _with_links(row: OnboardingStep) -> dict[str, Any] | None:
     """A discovery answer always carries its links (older ones get them from their profile)."""
     if row.step != "discovery" or not row.output:
         return row.output
-    return dc.with_links(row.output, (row.input or {}).get("profile"))
+    profile = (row.input or {}).get("profile")
+    full = dc.with_links(row.output, profile)
+    return {**full, "link_checks": dc.link_checks(full, profile)}
 
 
 def _step_view(row: OnboardingStep) -> dict[str, Any]:

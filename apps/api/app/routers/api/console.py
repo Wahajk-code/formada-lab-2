@@ -27,6 +27,7 @@ from app.services import (
     onboarding_items,
     onboarding_review,
     scheduler,
+    trial_cards,
 )
 from app.services import auth as auth_service
 from app.services import feedback as feedback_service
@@ -598,6 +599,18 @@ async def rate_trial_card(
     return await feedback_service.rate_trial_card(
         staff.actor, tenant_id, card_id, body.rating, body.note
     )
+
+
+class TrialRewriteIn(BaseModel):
+    instruction: str = Field(max_length=500)
+
+
+@router.post("/workspaces/{tenant_id}/trial/cards/{card_id}/rewrite")
+async def rewrite_trial_card(
+    tenant_id: uuid.UUID, card_id: uuid.UUID, body: TrialRewriteIn, staff: ConfigWriter
+) -> dict[str, Any]:
+    """Write one open card again as instructed (only its words change)."""
+    return await trial_cards.regenerate_card(staff.actor, tenant_id, card_id, body.instruction)
 
 
 class LinkAddIn(BaseModel):

@@ -394,6 +394,10 @@ export async function rateTrialCard(id: string, cardId: string, rating: string, 
   return attempt(() => consoleApi.rateTrialCard(id, cardId, rating, note), []);
 }
 
+export async function rewriteTrialCard(id: string, cardId: string, instruction: string) {
+  return attempt(() => consoleApi.rewriteTrialCard(id, cardId, instruction), []);
+}
+
 export async function loadRun(id: string, runId: string) {
   return attempt(() => consoleApi.run(id, runId), []);
 }

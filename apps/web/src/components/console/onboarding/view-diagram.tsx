@@ -51,6 +51,8 @@ export function ViewDiagram({ out, guide, cards }: { out: any; guide: Onboarding
     [out.links],
   );
   const linked = useMemo(() => new Set(links.flatMap((l) => [l.from, l.to])), [links]);
+  // Things the API found worth a second look on a link, from the views' own field types (no AI).
+  const checks = (out.link_checks ?? {}) as Record<string, string[]>;
   const present = AREA_KEYS.filter((a) => links.some((l) => areaOf(l.from) === a) || tables.some((t) => areaOf(t.table) === a));
   const [area, setArea] = useState<AreaKey>(present.find((a) => links.some((l) => areaOf(l.from) === a)) ?? present[0] ?? "sales");
   const [picked, setPicked] = useState<string | null>(null);
@@ -138,7 +140,7 @@ export function ViewDiagram({ out, guide, cards }: { out: any; guide: Onboarding
           <div className="vd-canvas" style={{ width: WIDTH, height }}>
             <svg width={WIDTH} height={height} viewBox={`0 0 ${WIDTH} ${height}`} aria-hidden>
               {wires.map(({ l, d }) => (
-                <g key={l.id} className={cn("vd-wire", l.id === sel?.id && "is-on", l.source === "team" && "is-team")}>
+                <g key={l.id} className={cn("vd-wire", l.id === sel?.id && "is-on", l.source === "team" && "is-team", checks[l.id] && "is-warn")}>
                   <path d={d} />
                   <path d={d} className="vd-hit" onClick={() => setPicked(l.id)} />
                 </g>
@@ -161,6 +163,7 @@ export function ViewDiagram({ out, guide, cards }: { out: any; guide: Onboarding
           <Lines
             rows={[
               ["In plain words", `Each ${nameOf(sel.from).toLowerCase()} row finds its match in ${nameOf(sel.to).toLowerCase()} using ${sel.keys === sel.ref ? sel.keys : `${sel.keys} on the first and ${sel.ref} on the second`}.`],
+              ["Worth a look", checks[sel.id]?.length ? checks[sel.id].join(". ") + "." : null],
               ["Our team's reason", sel.note ? sel.note : null],
               ["Mapping uses it", "Yes. Remove or change it here and the next mapping run reads the change."],
             ]}
@@ -182,6 +185,7 @@ export function ViewDiagram({ out, guide, cards }: { out: any; guide: Onboarding
                       <b>{nameOf(l.from)}</b> <Icon name="arrow-right" size={13} /> <b>{nameOf(l.to)}</b>
                     </span>
                     <code>{l.keys === l.ref ? l.keys : `${l.keys} = ${l.ref}`}</code>
+                    {checks[l.id] && <Status tone="decide">Check</Status>}
                     {l.source === "team" && <Status tone="info">Our team</Status>}
                     {cards?.unlocked.has(l.id) && <Status tone="decide">Open for changes</Status>}
                   </button>

@@ -68,3 +68,21 @@ def build_prompt(
         [f"# Department playbook\n{playbook.strip()}", role_section, rules_section, signals_section]
     )
     return Prompt(system=system.strip(), user=user)
+
+
+REWRITE_LIMIT = 500
+
+
+def rewrite_block(card: dict[str, str], instruction: str) -> str:
+    """What is added to the prompt when the team asks for one card to be written again. The numbers
+    come from the signal and never change; only the wording, the angle and the action may."""
+    current = "\n".join(f"{k}: {card[k]}" for k in ("title", "what", "so_what", "now_what"))
+    return (
+        "# Rewrite request\n"
+        "Write exactly ONE card, for the one signal above, replacing the card below. "
+        "The team asks for this change:\n"
+        f"{instruction.strip()}\n\n"
+        "Keep every figure exactly as the signal gives it, and keep every rule above. "
+        "Only the wording, the angle and the action may change.\n\n"
+        f"Current card:\n{current}"
+    )

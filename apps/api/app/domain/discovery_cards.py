@@ -639,6 +639,74 @@ def check_link(link: dict[str, Any], profile: dict[str, Any] | None) -> dict[str
     return fixed
 
 
+def _family(kind: Any) -> str:
+    """text, number, date, flag or other: enough to tell two keys cannot hold the same values."""
+    t = str(kind or "").upper()
+    if any(w in t for w in ("CHAR", "TEXT", "STRING")):
+        return "text"
+    if any(w in t for w in ("DATE", "TIME")):
+        return "date"
+    if any(w in t for w in ("NUMBER", "INT", "FLOAT", "DOUBLE", "DECIMAL", "NUMERIC", "REAL")):
+        return "number"
+    if "BOOL" in t:
+        return "flag"
+    return "other"
+
+
+def _plain(kind: Any) -> str:
+    """A type as a person says it: NUMBER(38,0) is a number, VARCHAR(255) is text."""
+    words = {"text": "text", "number": "a number", "date": "a date", "flag": "yes/no"}
+    return words.get(_family(kind), str(kind).lower())
+
+
+def _table_of(profile: dict[str, Any] | None, table: str) -> dict[str, Any] | None:
+    for v in (profile or {}).get("semantic_views", []):
+        for t in v.get("tables", []):
+            if str(t.get("table", "")).upper() == str(table).upper():
+                found: dict[str, Any] = t
+                return found
+    return None
+
+
+def link_notes(link: dict[str, Any], profile: dict[str, Any] | None) -> list[str]:
+    """Things worth a second look on one link, from the views' field types (no data read, no AI).
+    Empty when nothing looks off. A note is a question for the team, never a verdict: a type we
+    cannot see, or a field the view list was shortened before, is not flagged."""
+    notes: list[str] = []
+    keys = [w for w in re.split(r"[,\s]+", str(link.get("keys", ""))) if w]
+    refs = [w for w in re.split(r"[,\s]+", str(link.get("ref_keys", ""))) if w]
+    if len(keys) != len(refs):
+        notes.append(
+            f"{len(keys)} key(s) on one side, {len(refs)} on the other: they cannot pair up"
+        )
+    src = _table_of(profile, str(link.get("from_table", "")))
+    dst = _table_of(profile, str(link.get("to_table", "")))
+    if str(link.get("from_table", "")).upper() == str(link.get("to_table", "")).upper():
+        notes.append("links a table to itself: check this is a parent and child, not a slip")
+    if src is not None and dst is not None:
+        types_a = {str(d.get("name", "")).upper(): d.get("type") for d in src.get("dimensions", [])}
+        types_b = {str(d.get("name", "")).upper(): d.get("type") for d in dst.get("dimensions", [])}
+        for k, r in zip(keys, refs, strict=False):
+            ta, tb = types_a.get(k.upper()), types_b.get(r.upper())
+            fa, fb = _family(ta), _family(tb)
+            if ta and tb and "other" not in (fa, fb) and fa != fb:
+                notes.append(f"{k} is {_plain(ta)} but {r} is {_plain(tb)}: may never match")
+        if not src.get("metrics") and dst.get("metrics"):
+            notes.append(
+                "the table with the measures receives the link: the direction may be reversed"
+            )
+    return notes
+
+
+def link_checks(out: dict[str, Any], profile: dict[str, Any] | None) -> dict[str, list[str]]:
+    """The notes for every link of the answer that has any, by card id."""
+    found: dict[str, list[str]] = {}
+    for lk in out.get("links", []):
+        if notes := link_notes(lk, profile):
+            found[card_id("link", lk)] = notes
+    return found
+
+
 def remove_link(out: dict[str, Any], cid: str) -> dict[str, Any]:
     """A copy of the answer without one link. It stays removed after a rerun."""
     found = index(out).get(cid)

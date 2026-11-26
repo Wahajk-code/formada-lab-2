@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
 
-import { applyRulesPreset, previewChange, rateTrialCard } from "@/app/console-actions";
+import { applyRulesPreset, previewChange, rateTrialCard, rewriteTrialCard } from "@/app/console-actions";
 import { PRESETS, type PresetName } from "@/components/console/onboarding/rules-presets";
 import { Status } from "@/components/console/onboarding/review-kit";
 import { Icon } from "@/components/ui/icon";
@@ -31,6 +31,18 @@ export function TrialCardReview({ workspaceId, card, can }: { workspaceId: strin
   const [picked, setPicked] = useState<(typeof RATINGS)[number]["key"] | null>(null);
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
   const choice = RATINGS.find((r) => r.key === picked);
+  const router = useRouter();
+  const [wish, setWish] = useState("");
+  const [rewrite, setRewrite] = useState<{ ok: boolean; text: string } | null>(null);
+  const redo = () =>
+    start(async () => {
+      const res = await rewriteTrialCard(workspaceId, card.id, wish);
+      setRewrite(res.ok ? { ok: true, text: `Written again by ${res.data?.model ?? "the card writer"}. The numbers did not change.` } : { ok: false, text: res.error });
+      if (res.ok) {
+        setWish("");
+        router.refresh();
+      }
+    });
   const send = () => {
     if (!picked) return;
     start(async () => {
@@ -84,6 +96,18 @@ export function TrialCardReview({ workspaceId, card, can }: { workspaceId: strin
                 {result.text}
               </p>
             )}
+            <div className="trial-rate-note">
+              <p className="rv-muted">Not happy with the words? Say what to change and the card writer writes this card again. The figures stay as measured, and the new text must pass the same checks.</p>
+              <input value={wish} maxLength={500} placeholder="For example: shorter, and say what to do first" onChange={(e) => setWish(e.target.value)} aria-label="What to change in this card" />
+              <button type="button" className="btn btn-secondary" disabled={pending || !wish.trim()} onClick={redo}>
+                <Icon name="sparkles" size={15} /> <span>{pending ? "Writing…" : "Write it again"}</span>
+              </button>
+              {rewrite && (
+                <p className={cn("rv-alert", !rewrite.ok && "rv-alert-fail")} role="status">
+                  {rewrite.text}
+                </p>
+              )}
+            </div>
           </div>
         )}
       </div>
