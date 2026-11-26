@@ -581,6 +581,25 @@ def mapping_mentions(links: list[dict[str, Any]], ids: list[str]) -> list[dict[s
     return found
 
 
+# Steps about the people and the plan, not the data: the raw warehouse profile is about three
+# quarters of the chat context and these questions do not need it. The data guide and the mapping,
+# which summarise it, stay. The answer says what was left out, so a question that does need it is
+# pointed to the Discovery or Mapping chat instead of guessed at.
+LEAN_STEPS = ("org", "metrics", "rules", "trial")
+
+
+def lean_for(step: str | None, ctx: dict[str, Any]) -> dict[str, Any]:
+    if step not in LEAN_STEPS or "warehouse_profile" not in ctx:
+        return ctx
+    lean = {k: v for k, v in ctx.items() if k != "warehouse_profile"}
+    lean["profile_left_out"] = (
+        "The full warehouse profile (every table and field) is not included on this step. The data "
+        "guide and the mapping links above summarise it. For a question about a specific table or "
+        "field, say so and suggest asking in the Discovery or Mapping chat."
+    )
+    return lean
+
+
 TRIAL_CARDS = 40  # the most cards of the trial run the chat is given
 TRIAL_NOTES = 15  # rejections and dropped signals listed
 
@@ -638,7 +657,7 @@ async def team_context_for(
 ) -> tuple[dict[str, Any], list[str]]:
     """The context the team chat is given, with the items attached by @ read in full. Returns the
     context and the attached ids it could not read."""
-    ctx = await _team_context(tenant_id)
+    ctx = lean_for(step, await _team_context(tenant_id))
     if step == "trial":
         # Only on the trial page: the run's cards add tokens to every question that carries them.
         ctx["trial_run"] = await _trial_context(tenant_id)
