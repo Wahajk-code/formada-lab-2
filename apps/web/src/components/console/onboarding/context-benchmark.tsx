@@ -22,16 +22,16 @@ const VERDICT = {
  * them is evidence it read its context properly. Wrong on one it made up is a reason to rerun before
  * trusting the harder parts. It costs nothing: no AI is involved, and it updates with every edit.
  */
-export function ContextBenchmark({ benchmark, cards, subject = "discovery", onExplain }: { benchmark?: Benchmark | null; cards?: CardCtx; subject?: "discovery" | "mapping"; onExplain?: (question: string) => void }) {
+export function ContextBenchmark({ benchmark, cards, subject = "discovery", onExplain }: { benchmark?: Benchmark | null; cards?: CardCtx; subject?: "discovery" | "mapping" | "org" | "metrics"; onExplain?: (question: string) => void }) {
   if (!benchmark || benchmark.total === 0) return null;
   const v = VERDICT[benchmark.verdict];
   const failed = benchmark.probes.filter((p) => p.status === "fail");
   const passed = benchmark.probes.filter((p) => p.status === "pass");
   const groups = [...new Set(passed.map((p) => p.group))];
-  const what = subject === "mapping" ? "the mapping" : "the analysis";
+  const what = subject === "mapping" ? "the mapping" : subject === "org" ? "the org web" : subject === "metrics" ? "the metrics plan" : "the analysis";
   const point =
     benchmark.verdict === "confirmed"
-      ? `Code worked out the obvious answers from what was measured, and the AI got every one right. That is evidence it read ${subject === "mapping" ? "the customer's fields" : "the data"} properly.`
+      ? `Code worked out the obvious answers from what was measured, and the AI got every one right. That is evidence it read ${subject === "mapping" ? "the customer's fields" : subject === "org" ? "the roles and the data" : subject === "metrics" ? "the roles, the templates and the data" : "the data"} properly.`
       : benchmark.verdict === "mostly"
         ? "The AI got the obvious answers right except the ones below. Check them: they are small, but they show where it read loosely."
         : `The AI got something obvious wrong, or made something up. Run ${what} again, or fix the items below, before trusting the harder parts.`;

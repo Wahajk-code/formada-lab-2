@@ -42,6 +42,7 @@ import { MappingStage } from "@/components/console/onboarding/mapping-stage";
 import { MetricLibrary } from "@/components/console/onboarding/metric-library";
 import { RulesPresets } from "@/components/console/onboarding/rules-presets";
 import { ConnectReach } from "@/components/console/onboarding/connect-reach";
+import { ContextBenchmark, type Benchmark } from "@/components/console/onboarding/context-benchmark";
 import { RoleCoverage } from "@/components/console/onboarding/role-coverage";
 import { StepChat } from "@/components/console/onboarding/step-chat";
 import {
@@ -775,6 +776,9 @@ export function StepView({
           )}
           {stepKey === "org" && <OrgVerdict state={state} can={can} />}
           {stepKey === "org" && <RoleCoverage state={state} guide={guide} />}
+          {(stepKey === "org" || stepKey === "metrics") && (
+            <ContextBenchmark subject={stepKey} benchmark={(step?.output as { context_benchmark?: Benchmark | null } | null | undefined)?.context_benchmark} />
+          )}
           {stepKey === "connect" && state.connection?.status === "ok" && <ConnectReach guide={guide} />}
           {agent && step && (step.status === "running" || step.status === "failed") && (
             <StepStatus step={step} workspaceId={state.workspace.id} can={can} stepName={stepKey} />

@@ -427,6 +427,26 @@ def _views_described(out: dict[str, Any], profile: dict[str, Any]) -> list[dict[
     ]
 
 
+def grade(probes: list[dict[str, str]], critical_ids: set[str]) -> dict[str, Any]:
+    """The verdict of a benchmark: skipped probes do not count; a failed critical probe (the AI
+    made something up) makes the whole answer doubtful whatever the score."""
+    graded = [p for p in probes if p["status"] != "skip"]
+    passed = sum(1 for p in graded if p["status"] == "pass")
+    failed = [p for p in graded if p["status"] == "fail"]
+    critical = [p for p in failed if p["id"].split(":")[0] in critical_ids]
+    score = round(100 * passed / len(graded)) if graded else 100
+    verdict = "doubtful" if critical or score < 80 else "confirmed" if not failed else "mostly"
+    return {
+        "verdict": verdict,
+        "score": score,
+        "passed": passed,
+        "total": len(graded),
+        "failed": len(failed),
+        "critical": len(critical),
+        "probes": probes,
+    }
+
+
 def run(out: dict[str, Any], profile: dict[str, Any] | None) -> dict[str, Any] | None:
     """The benchmark of one discovery answer, or None when there is nothing to check it against."""
     if not profile or "summary" not in out:
@@ -442,18 +462,4 @@ def run(out: dict[str, Any], profile: dict[str, Any] | None) -> dict[str, Any] |
         *_cadence(out, profile),
         *_issue_columns(out, profile),
     ]
-    graded = [p for p in probes if p["status"] != "skip"]
-    passed = sum(1 for p in graded if p["status"] == "pass")
-    failed = [p for p in graded if p["status"] == "fail"]
-    critical = [p for p in failed if p["id"].split(":")[0] in CRITICAL]
-    score = round(100 * passed / len(graded)) if graded else 100
-    verdict = "doubtful" if critical or score < 80 else "confirmed" if not failed else "mostly"
-    return {
-        "verdict": verdict,
-        "score": score,
-        "passed": passed,
-        "total": len(graded),
-        "failed": len(failed),
-        "critical": len(critical),
-        "probes": probes,
-    }
+    return grade(probes, CRITICAL)

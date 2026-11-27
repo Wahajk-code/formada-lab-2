@@ -9,7 +9,7 @@ import asyncio
 import json
 import re
 import uuid
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
@@ -23,7 +23,7 @@ from app.core.logging import get_logger
 from app.core.settings import get_settings
 from app.domain import discovery_benchmark as benchmark
 from app.domain import discovery_cards as dc
-from app.domain import mapping_benchmark, org_import, semantic
+from app.domain import mapping_benchmark, org_import, plan_benchmark, semantic
 from app.domain import onboarding as ob
 from app.domain import onboarding_flow as flow
 from app.domain import runs as run_rules
@@ -353,6 +353,37 @@ def _with_links(row: OnboardingStep) -> dict[str, Any] | None:
     }
 
 
+def _add_plan_benchmarks(latest: dict[str, dict[str, Any]], rows: Sequence[OnboardingStep]) -> None:
+    """Benchmarks of the org web and the metrics plan, judged against what each step was shown."""
+    first: dict[str, OnboardingStep] = {}
+    for r in rows:  # newest first, so the first row of a step is the one shown
+        first.setdefault(r.step, r)
+    org, metrics = latest.get("org"), latest.get("metrics")
+    mapping = (latest.get("mapping") or {}).get("output")
+    if org and org.get("output") and "roles" in org["output"]:
+        seen = (first["org"].input or {}) if "org" in first else {}
+        org["output"] = {
+            **org["output"],
+            "context_benchmark": plan_benchmark.run_org(
+                org["output"], seen.get("role_archetypes"), mapping
+            ),
+        }
+    if metrics and metrics.get("output") and "metrics" in metrics["output"]:
+        seen = (first["metrics"].input or {}) if "metrics" in first else {}
+        org_seen = (first["org"].input or {}) if "org" in first else {}
+        metrics["output"] = {
+            **metrics["output"],
+            "context_benchmark": plan_benchmark.run_metrics(
+                metrics["output"],
+                seen.get("roles"),
+                {str(t.get("key")) for t in seen.get("templates", [])},
+                template_shapes(),
+                mapping,
+                org_seen.get("role_archetypes"),
+            ),
+        }
+
+
 def _step_view(row: OnboardingStep) -> dict[str, Any]:
     cost = estimated_cost(row.model or "", row.input_tokens + row.output_tokens)
     return {
@@ -432,6 +463,7 @@ async def state(tenant_id: uuid.UUID) -> dict[str, Any]:
         history[r.step].append(
             {"id": str(r.id), "status": r.status, "created_at": r.created_at.isoformat()}
         )
+    _add_plan_benchmarks(latest, rows)
     titles = {r.id: r.title for r in roles}
     by_metric: dict[uuid.UUID, list[dict[str, Any]]] = {}
     for rm in role_metrics:

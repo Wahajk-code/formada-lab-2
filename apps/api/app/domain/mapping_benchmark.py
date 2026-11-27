@@ -13,7 +13,7 @@ type the view does not give, a shortened field list) is skipped, never failed.
 import re
 from typing import Any
 
-from app.domain.discovery_benchmark import AREA_HINTS, _probe, _short
+from app.domain.discovery_benchmark import AREA_HINTS, _probe, _short, grade
 from app.domain.discovery_cards import _family
 
 # Which area a shape's source tables are named for.
@@ -235,18 +235,4 @@ def run(
         )
     for a in out["archetypes"]:
         probes += _shape(a, defs.get(str(a["archetype"])), cols, cut)
-    graded = [p for p in probes if p["status"] != "skip"]
-    passed = sum(1 for p in graded if p["status"] == "pass")
-    failed = [p for p in graded if p["status"] == "fail"]
-    critical = [p for p in failed if p["id"].split(":")[0] in CRITICAL]
-    score = round(100 * passed / len(graded)) if graded else 100
-    verdict = "doubtful" if critical or score < 80 else "confirmed" if not failed else "mostly"
-    return {
-        "verdict": verdict,
-        "score": score,
-        "passed": passed,
-        "total": len(graded),
-        "failed": len(failed),
-        "critical": len(critical),
-        "probes": probes,
-    }
+    return grade(probes, CRITICAL)
