@@ -56,7 +56,7 @@ def connect(
             "authenticator": "PROGRAMMATIC_ACCESS_TOKEN",
             "token": get_vault().get_secret(conn.secret_ref),
         }
-    elif settings.warehouse_host:  # local emulator
+    elif settings.warehouse_host and not conn.secret_ref:  # local emulator (no key)
         kwargs |= {
             "host": settings.warehouse_host,
             "port": settings.warehouse_port,

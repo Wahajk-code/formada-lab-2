@@ -102,6 +102,17 @@ class TableShape:
 # ---------------------------------------------------------------------------------------------
 
 
+def in_scope(schema: str, table: str, scope: Sequence[str]) -> bool:
+    """Whether Discovery may profile this table. The scope lists schemas ("GOLD") and single tables
+    ("GOLD.DIM_CALENDAR"); empty means everything the user can see. A customer may expose dozens of
+    tables, and every one profiled is a scan on their warehouse and more for the AI to read."""
+    wanted = {s.strip().upper() for s in scope if s and s.strip()}
+    if not wanted:
+        return True
+    s, t = schema.upper(), table.upper()
+    return s in wanted or f"{s}.{t}" in wanted
+
+
 def tables_sql(database: str) -> str:
     db = check_ident(database)
     return (

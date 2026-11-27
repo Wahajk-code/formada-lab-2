@@ -4,6 +4,7 @@ A secret_ref is an opaque name stored in Postgres (e.g. "tenant/<id>/snowflake_k
 the key material itself never touches Postgres, logs or the browser.
 """
 
+import base64
 import json
 import os
 from functools import lru_cache
@@ -20,7 +21,12 @@ class SecretsVault(Protocol):
 
 
 class EnvVault:
-    """ref "tenant/abc/snowflake_key" -> env var SECRET_TENANT_ABC_SNOWFLAKE_KEY."""
+    """ref "tenant/abc/snowflake_key" -> env var SECRET_TENANT_ABC_SNOWFLAKE_KEY.
+
+    A multi-line secret (a private key in PEM form) does not fit one line of an env file, so the
+    same name with _B64 on the end may hold it base64-encoded:
+    SECRET_PLATFORM_SNOWFLAKE_KEY_B64=<base64 of the PEM>.
+    """
 
     ALIASES: ClassVar[dict[str, str]] = {"platform/snowflake_pat": "SNOWFLAKE_PAT"}
 
@@ -29,6 +35,8 @@ class EnvVault:
             "SECRET_" + "".join(c if c.isalnum() else "_" for c in ref).upper()
         )
         value = os.environ.get(name)
+        if value is None and (encoded := os.environ.get(name + "_B64")):
+            value = base64.b64decode(encoded).decode("utf-8")
         if value is None:
             raise KeyError(f"secret {ref!r} not found")
         return value

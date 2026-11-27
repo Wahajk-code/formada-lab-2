@@ -12,6 +12,8 @@ class ConnectionConfig:
     warehouse: str
     database: str
     secret_ref: str
+    # What Discovery may profile: a schema ("GOLD") or one table ("GOLD.DIM_CALENDAR"). Empty: all.
+    schemas: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

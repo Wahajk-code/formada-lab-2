@@ -202,6 +202,7 @@ def _conn(wc: WarehouseConnection) -> ConnectionConfig:
         warehouse=wc.warehouse_name,
         database=wc.database_name,
         secret_ref=wc.secret_ref,
+        schemas=tuple(wc.schemas or ()),
     )
 
 
@@ -826,7 +827,8 @@ async def build_profile(
     tables: dict[str, ob.TableShape] = {}
     for r in await _q(wh, conn, ob.tables_sql(db), "tables"):
         t = ob.TableShape(r["table_schema"].upper(), r["table_name"].upper(), r["table_type"])
-        tables[t.qualified] = t
+        if ob.in_scope(t.schema, t.name, conn.schemas):
+            tables[t.qualified] = t
     for r in await _q(wh, conn, ob.columns_sql(db), "columns"):
         key = f"{r['table_schema'].upper()}.{r['table_name'].upper()}"
         if key in tables:
