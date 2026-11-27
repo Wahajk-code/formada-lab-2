@@ -29,12 +29,18 @@ NUMBER_WORDS = re.compile(
     r"(units|qty|quantity|amount|cost|price|value|sales|revenue|discount|total|on_hand|on_order)",
     re.I,
 )
-CRITICAL = {"columns_exist", "right_area", "type_fit"}
+# A field named for something that happened, and a column named or described as only planned.
+HAPPENED = re.compile(r"(receiv|receipt|ship|deliver|actual|paid|closed|complet)", re.I)
+PLANNED = re.compile(
+    r"(?<![a-z])(expected|promised|planned|estimated|scheduled|due|forecast(?:ed)?|eta|requested|target)(?![a-z])",
+    re.I,
+)
+CRITICAL = {"columns_exist", "right_area", "type_fit", "date_meaning"}
 
 
 def _expected_kind(field: str) -> str | None:
     f = field.lower()
-    if f == "date" or f.endswith("_date"):
+    if f == "date" or f.endswith(("_date", "_at")):
         return "date"
     if NUMBER_WORDS.search(f):
         return "number"
@@ -63,6 +69,18 @@ def _columns(profile: dict[str, Any]) -> dict[tuple[str, str], tuple[Any, bool]]
     return found
 
 
+def _comments(profile: dict[str, Any]) -> dict[tuple[str, str], str]:
+    """(TABLE, COLUMN) -> what the customer's own view says that field is."""
+    found: dict[tuple[str, str], str] = {}
+    for v in profile.get("semantic_views", []):
+        for t in v.get("tables", []):
+            for d in [*t.get("dimensions", []), *t.get("metrics", [])]:
+                if d.get("comment"):
+                    key = (str(t["table"]).upper(), str(d.get("name", "")).upper())
+                    found[key] = str(d["comment"])
+    return found
+
+
 def _cut_tables(profile: dict[str, Any]) -> set[str]:
     return {
         str(t["table"]).upper()
@@ -82,6 +100,7 @@ def _shape(
     defn: dict[str, Any] | None,
     cols: dict[tuple[str, str], tuple[Any, bool]],
     cut: set[str],
+    comments: dict[tuple[str, str], str],
 ) -> list[dict[str, str]]:
     key, name = str(a["archetype"]), str(a["archetype"]).replace("_", " ")
     status = a.get("status")
@@ -164,6 +183,31 @@ def _shape(
             )
         )
 
+    wrong_date = []
+    for f in fields:
+        if (
+            not HAPPENED.search(str(f.get("field", "")))
+            or _expected_kind(str(f["field"])) != "date"
+        ):
+            continue
+        for r in f.get("source_columns", []):
+            said = f"{_split(r)[1].replace('_', ' ')} {comments.get(_split(r), '')}"
+            if PLANNED.search(said):
+                wrong_date.append(
+                    f"{f['field']} reads {_split(r)[1]}, which the view calls planned"
+                )
+    if any(HAPPENED.search(str(f.get("field", ""))) for f in fields):
+        probes.append(
+            _probe(
+                f"date_meaning:{key}",
+                "Shapes",
+                f"{name}: a date that happened does not read a planned date",
+                "received, shipped or delivered dates read actual dates, not expected ones",
+                "all actual" if not wrong_date else "; ".join(wrong_date[:3]),
+                "pass" if not wrong_date else "fail",
+            )
+        )
+
     hint = AREA_HINTS.get(SHAPE_AREA.get(key, ""))
     if hint and refs:
         tables = {_split(r)[0] for _f, r in refs} | set(
@@ -217,7 +261,7 @@ def run(
     """The benchmark of one mapping answer, or None when there is nothing to check it against."""
     if not profile or "archetypes" not in out or not out["archetypes"]:
         return None
-    cols, cut = _columns(profile), _cut_tables(profile)
+    cols, cut, comments = _columns(profile), _cut_tables(profile), _comments(profile)
     defs = {str(s["archetype"]): s for s in shapes or []}
     probes: list[dict[str, str]] = []
     answered = {str(a["archetype"]) for a in out["archetypes"]}
@@ -234,5 +278,5 @@ def run(
             )
         )
     for a in out["archetypes"]:
-        probes += _shape(a, defs.get(str(a["archetype"])), cols, cut)
+        probes += _shape(a, defs.get(str(a["archetype"])), cols, cut, comments)
     return grade(probes, CRITICAL)

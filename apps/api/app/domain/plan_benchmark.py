@@ -345,3 +345,77 @@ def run_metrics(
         )
     )
     return grade(probes, METRICS_CRITICAL)
+
+
+# ---- guards used while the metrics plan is made (they refuse; the benchmark only reports) ----
+
+
+def implausible_levels(out: dict[str, Any]) -> list[str]:
+    """Alert levels the data produced that cannot be real. The level comes from the customer's own
+    values, so an impossible one means the data under the measure is wrong, and the plan must not go
+    out with it: the AI is told to leave the measure out and say why."""
+    found = []
+    for m in out.get("metrics", []):
+        limit = IMPLAUSIBLE.get(str(m.get("unit", "")).lower())
+        for a in m.get("attach", []):
+            value = a.get("threshold_value")
+            if value is not None and limit is not None and float(value) > limit:
+                found.append(
+                    f"{m['key']} for {a['role_ref']}: an alert level of {float(value):g} "
+                    f"{m.get('unit')} is not believable, so the data under this measure looks "
+                    "wrong (for example a received date that is really an expected date). Leave "
+                    "the measure out and list it under skipped with that reason."
+                )
+    return found
+
+
+def area_templates(offered: dict[str, str]) -> dict[str, list[str]]:
+    """Playbook -> the templates that can run for it. offered maps template -> its data shape."""
+    found: dict[str, list[str]] = {}
+    for template, shape in sorted(offered.items()):
+        if area := SHAPE_PLAYBOOK.get(shape):
+            found.setdefault(area, []).append(template)
+    return found
+
+
+def coverage_errors(
+    out: dict[str, Any], roles: list[dict[str, Any]], by_area: dict[str, list[str]]
+) -> list[str]:
+    """A role with nothing to be alerted on never gets a card. Asked for only when there is a
+    measure to give it: one in its own area that nobody owns yet, or a second one owned by a role of
+    the same type (a measure has one owner, so it has to be moved)."""
+    metrics = out.get("metrics", [])
+    owned_by: dict[str, int] = {}
+    for m in metrics:
+        for a in m.get("attach", []):
+            owned_by[str(a["role_ref"])] = owned_by.get(str(a["role_ref"]), 0) + 1
+    taken = {str(m["template"]) for m in metrics}
+    everything = sorted({t for names in by_area.values() for t in names})
+    found = []
+    for r in roles:
+        if owned_by.get(str(r["ref"])):
+            continue
+        pool = (
+            everything
+            if r.get("playbook") == "executive"
+            else by_area.get(str(r.get("playbook")), [])
+        )
+        free = [t for t in pool if t not in taken]
+        donors = [
+            str(o["title"])
+            for o in roles
+            if o["ref"] != r["ref"]
+            and o.get("playbook") == r.get("playbook")
+            and owned_by.get(str(o["ref"]), 0) >= 2
+        ]
+        if free:
+            found.append(
+                f"{r['title']} has no measure. Give it at least one of these, which fit its job "
+                f"and nobody has yet: {', '.join(free[:4])}."
+            )
+        elif donors:
+            found.append(
+                f"{r['title']} has no measure. A measure has one owner, so move one that fits its "
+                f"job from {donors[0]}, who has several."
+            )
+    return found

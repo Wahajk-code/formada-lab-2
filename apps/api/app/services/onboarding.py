@@ -1669,7 +1669,25 @@ async def start_metrics(
             )
             for t in templates
         }
-        report = ob.check_metrics(data, infos, set(maps), set(refs))
+        by_area = plan_benchmark.area_templates(
+            {t.key: template_shapes().get(t.key, "") for t in templates}
+        )
+        archetype_play = {a["key"]: a.get("playbook") for a in await _role_archetypes()}
+        seen_roles = [
+            {"ref": ref, "title": r.title, "playbook": archetype_play.get(r.role_archetype_key)}
+            for ref, r in refs.items()
+        ]
+
+        def judge(plan: dict[str, Any]) -> ob.CheckReport:
+            """The checks, plus two that need the numbers: an alert level the data cannot
+            support, and a role left with nothing to be alerted on."""
+            result = ob.check_metrics(plan, infos, set(maps), set(refs))
+            _set_numbers(plan, infos, latest_values, result)
+            result.errors += plan_benchmark.implausible_levels(plan)
+            result.errors += plan_benchmark.coverage_errors(plan, seen_roles, by_area)
+            return result
+
+        report = judge(data)
         repaired: dict[str, Any] | None = None
         if report.errors:  # one repair try: show the agent what the checks refused
             again = await _ask(
@@ -1680,32 +1698,40 @@ async def start_metrics(
             )  # fmt: skip
             if again is not None:
                 data2 = again.model_dump()
-                report2 = ob.check_metrics(data2, infos, set(maps), set(refs))
+                report2 = judge(data2)
                 if len(report2.errors) < len(report.errors):
                     repaired = {"errors": report.errors}
                     data, report = data2, report2
-        for m in data["metrics"]:  # code turns threshold rules into numbers
-            m["template_version"] = (
-                infos[m["template"]].version if m["template"] in infos else m["template_version"]
-            )
-            for a in m["attach"]:
-                rule = a["threshold"]
-                a["threshold_value"] = ob.threshold_from_rule(
-                    rule["kind"], rule["value"], latest_values.get(m["template"], [])
-                )
-                today = latest_values.get(m["template"], [])
-                a["would_fire"] = ob.would_fire(a["threshold_value"], m["higher_is_better"], today)
-                if rule["kind"] != "none" and a["threshold_value"] is None:
-                    report.warnings.append(
-                        f"{m['key']} for {a['role_ref']}: the {rule['kind']} rule gives no "
-                        "threshold on this data (values are mostly zero); it will be trend only"
-                    )
         checks = {**report.as_dict(), "dry_runs": shapes}
         if repaired:
             checks["repaired_from"] = repaired
         await _finish(tenant_id, step_id, data, checks)
 
     return await _start(actor, tenant_id, "metrics", notes, work)
+
+
+def _set_numbers(
+    plan: dict[str, Any],
+    infos: dict[str, Any],
+    latest_values: dict[str, list[float]],
+    report: ob.CheckReport,
+) -> None:
+    """Code turns each threshold rule into a number from the customer's own latest values, and says
+    whether it would fire today. The AI picks the rule; it never writes the number."""
+    for m in plan["metrics"]:
+        m["template_version"] = (
+            infos[m["template"]].version if m["template"] in infos else m["template_version"]
+        )
+        for a in m["attach"]:
+            rule = a["threshold"]
+            today = latest_values.get(m["template"], [])
+            a["threshold_value"] = ob.threshold_from_rule(rule["kind"], rule["value"], today)
+            a["would_fire"] = ob.would_fire(a["threshold_value"], m["higher_is_better"], today)
+            if rule["kind"] != "none" and a["threshold_value"] is None:
+                report.warnings.append(
+                    f"{m['key']} for {a['role_ref']}: the {rule['kind']} rule gives no "
+                    "threshold on this data (values are mostly zero); it will be trend only"
+                )
 
 
 async def _apply_metrics(
