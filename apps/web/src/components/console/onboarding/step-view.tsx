@@ -776,7 +776,7 @@ export function StepView({
           )}
           {stepKey === "org" && <OrgVerdict state={state} can={can} />}
           {stepKey === "org" && <RoleCoverage state={state} guide={guide} />}
-          {(stepKey === "org" || stepKey === "metrics") && (
+          {(stepKey === "org" || stepKey === "metrics" || stepKey === "rules") && (
             <ContextBenchmark subject={stepKey} benchmark={(step?.output as { context_benchmark?: Benchmark | null } | null | undefined)?.context_benchmark} />
           )}
           {stepKey === "connect" && state.connection?.status === "ok" && <ConnectReach guide={guide} />}

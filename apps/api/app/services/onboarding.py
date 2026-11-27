@@ -23,7 +23,7 @@ from app.core.logging import get_logger
 from app.core.settings import get_settings
 from app.domain import discovery_benchmark as benchmark
 from app.domain import discovery_cards as dc
-from app.domain import mapping_benchmark, org_import, plan_benchmark, semantic
+from app.domain import mapping_benchmark, org_import, plan_benchmark, rules_benchmark, semantic
 from app.domain import onboarding as ob
 from app.domain import onboarding_flow as flow
 from app.domain import runs as run_rules
@@ -360,7 +360,7 @@ def _add_plan_benchmarks(
     first: dict[str, OnboardingStep] = {}
     for r in rows:  # newest first, so the first row of a step is the one shown
         first.setdefault(r.step, r)
-    org, metrics = latest.get("org"), latest.get("metrics")
+    org, metrics, rules = latest.get("org"), latest.get("metrics"), latest.get("rules")
     mapping = (latest.get("mapping") or {}).get("output")
     if org and org.get("output") and "roles" in org["output"]:
         seen = (first["org"].input or {}) if "org" in first else {}
@@ -368,6 +368,13 @@ def _add_plan_benchmarks(
             **org["output"],
             "context_benchmark": plan_benchmark.run_org(
                 org["output"], seen.get("role_archetypes"), mapping
+            ),
+        }
+    if rules and rules.get("output") and "changes" in rules["output"]:
+        rules["output"] = {
+            **rules["output"],
+            "context_benchmark": rules_benchmark.run(
+                rules["output"], (first["rules"].input or {}) if "rules" in first else None
             ),
         }
     if metrics and metrics.get("output") and "metrics" in metrics["output"]:

@@ -22,13 +22,13 @@ const VERDICT = {
  * them is evidence it read its context properly. Wrong on one it made up is a reason to rerun before
  * trusting the harder parts. It costs nothing: no AI is involved, and it updates with every edit.
  */
-export function ContextBenchmark({ benchmark, cards, subject = "discovery", onExplain }: { benchmark?: Benchmark | null; cards?: CardCtx; subject?: "discovery" | "mapping" | "org" | "metrics"; onExplain?: (question: string) => void }) {
+export function ContextBenchmark({ benchmark, cards, subject = "discovery", onExplain }: { benchmark?: Benchmark | null; cards?: CardCtx; subject?: "discovery" | "mapping" | "org" | "metrics" | "rules"; onExplain?: (question: string) => void }) {
   if (!benchmark || benchmark.total === 0) return null;
   const v = VERDICT[benchmark.verdict];
   const failed = benchmark.probes.filter((p) => p.status === "fail");
   const passed = benchmark.probes.filter((p) => p.status === "pass");
   const groups = [...new Set(passed.map((p) => p.group))];
-  const what = subject === "mapping" ? "the mapping" : subject === "org" ? "the org web" : subject === "metrics" ? "the metrics plan" : "the analysis";
+  const what = subject === "mapping" ? "the mapping" : subject === "org" ? "the org web" : subject === "metrics" ? "the metrics plan" : subject === "rules" ? "the rules" : "the analysis";
   const point =
     benchmark.verdict === "confirmed"
       ? `Code worked out the obvious answers from what was measured, and the AI got every one right. That is evidence it read ${subject === "mapping" ? "the customer's fields" : subject === "org" ? "the roles and the data" : subject === "metrics" ? "the roles, the templates and the data" : "the data"} properly.`
