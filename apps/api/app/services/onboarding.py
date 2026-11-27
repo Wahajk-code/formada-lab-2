@@ -353,7 +353,9 @@ def _with_links(row: OnboardingStep) -> dict[str, Any] | None:
     }
 
 
-def _add_plan_benchmarks(latest: dict[str, dict[str, Any]], rows: Sequence[OnboardingStep]) -> None:
+def _add_plan_benchmarks(
+    latest: dict[str, dict[str, Any]], rows: Sequence[OnboardingStep], running: set[str]
+) -> None:
     """Benchmarks of the org web and the metrics plan, judged against what each step was shown."""
     first: dict[str, OnboardingStep] = {}
     for r in rows:  # newest first, so the first row of a step is the one shown
@@ -376,7 +378,9 @@ def _add_plan_benchmarks(latest: dict[str, dict[str, Any]], rows: Sequence[Onboa
             "context_benchmark": plan_benchmark.run_metrics(
                 metrics["output"],
                 seen.get("roles"),
-                {str(t.get("key")) for t in seen.get("templates", [])} | set(template_shapes()),
+                {str(t.get("key")) for t in seen.get("templates", [])}
+                | set(template_shapes())
+                | running,
                 template_shapes(),
                 mapping,
                 org_seen.get("role_archetypes"),
@@ -463,7 +467,7 @@ async def state(tenant_id: uuid.UUID) -> dict[str, Any]:
         history[r.step].append(
             {"id": str(r.id), "status": r.status, "created_at": r.created_at.isoformat()}
         )
-    _add_plan_benchmarks(latest, rows)
+    _add_plan_benchmarks(latest, rows, {m.sql_template_key for m in metrics})
     titles = {r.id: r.title for r in roles}
     by_metric: dict[uuid.UUID, list[dict[str, Any]]] = {}
     for rm in role_metrics:
