@@ -3,6 +3,7 @@ import { useLocale, useTranslations } from "next-intl";
 import { CardActions } from "@/components/cards/card-actions";
 import { EvidenceChart } from "@/components/cards/evidence-chart";
 import { Icon } from "@/components/ui/icon";
+import { whyLines } from "@/lib/card-why";
 import type { Card } from "@/lib/client-api";
 import { num, roundMoney } from "@/lib/format";
 
@@ -29,6 +30,9 @@ export function InsightCard({
   const value = (v: number | null | undefined) =>
     v == null ? "–" : e.unit === card.impact_unit ? roundMoney(v, card.impact_unit, locale) : `${num(v, locale, 1)} ${e.unit}`;
   const open = card.status === "open";
+  // The caution comes from code, in the owner's language; the English sentence is the fallback.
+  const notes = e.data_note_codes?.length ? e.data_note_codes.map((n) => t(`note.${n.code}`, n.values)) : (e.data_notes ?? []);
+  const why = whyLines(card, locale);
   return (
     <article className={`insight-card dw-insight${open ? "" : " insight-card-archived"}`} aria-label={card.title}>
       <header className="insight-card-header">
@@ -49,6 +53,19 @@ export function InsightCard({
         <h3 className="insight-title" lang={card.language}>
           {card.title}
         </h3>
+        {notes.length > 0 && (
+          <div className="dw-data-check" role="note">
+            <Icon name="alert-circle" size={17} />
+            <div>
+              <strong>{t("dataCheck")}</strong>
+              <ul>
+                {notes.map((n) => (
+                  <li key={n}>{n}</li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        )}
         <dl className="insight-narrative" lang={card.language}>
           <div>
             <dt>{t("what")}</dt>
@@ -80,6 +97,26 @@ export function InsightCard({
               <dd>{value(e.baseline_mean)}</dd>
             </div>
           </dl>
+          <details className="insight-evidence dw-evidence dw-why">
+            <summary>
+              <span>
+                <Icon name="info" size={17} />
+                <strong>{t("whyTitle")}</strong>
+              </span>
+              <Icon name="chevron-down" size={16} />
+            </summary>
+            <ul className="dw-why-list">
+              {why.map((l) => (
+                <li key={l.key}>
+                  {t(`why.${l.key}`, {
+                    ...l.values,
+                    side: l.side ? t(`why.${l.side}`) : "",
+                    sideOf: l.side ? t(`why.${l.side}Of`) : "",
+                  })}
+                </li>
+              ))}
+            </ul>
+          </details>
           <details className="insight-evidence dw-evidence">
             <summary>
               <span>

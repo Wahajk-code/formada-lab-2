@@ -301,7 +301,20 @@
     "actionConfirm": "Start initiative",
     "not_relevantConfirm": "Mark not relevant",
     "impossibleConfirm": "Mark impossible",
-    "feedback": "Feedback"
+    "feedback": "Feedback",
+    "reasonPrompt": "Why is it not relevant?",
+    "reason_already_handled": "Already handled or known",
+    "reason_too_small": "Too small to matter",
+    "reason_not_my_call": "Not my decision",
+    "reason_not_now": "Not the right time",
+    "reason_wrong_number": "The number looks wrong",
+    "reason_other": "Something else",
+    "wrongNumberPlaceholder": "What looks wrong? For example: the cost looks like per case, not per item",
+    "effect_impossible": "Closed. We will not suggest this exact action to your role again. Our team reads your reason and may turn it into a rule.",
+    "effect_wrong_number": "Thanks, closed. We flagged the number to our data team, who will check the source. This does not count against the measure, and the card can return once the data is right.",
+    "effect_quiet": "Closed. We will not show this card to you again for {weeks, plural, one {# week} other {# weeks}}.",
+    "effect_learn": "Closed. We will not show this card to you again for {weeks, plural, one {# week} other {# weeks}}. After {n} like this on the same measure, we propose showing it less often to your role, and our team reviews that first.",
+    "gotIt": "Got it"
   },
   "org": {
     "title": "Org Web",
@@ -1211,7 +1224,28 @@
       "superseded": "Replaced"
     },
     "aggregated": "Aggregated evidence",
-    "vacantNote": "Vacant role · you’re acting as its parent"
+    "vacantNote": "Vacant role · you’re acting as its parent",
+    "dataCheck": "Check the data first",
+    "note": {
+      "days": "{metric} of {value} days is hard to believe. Check that the dates behind it are actual dates, not planned ones.",
+      "percent": "{metric} of {value} is above 100%, which cannot be right. Check the source.",
+      "jump_up": "{metric} is {ratio} times its usual level. A change this big is often a data problem (per case read as per item, rows loaded twice). Confirm it at the source first.",
+      "jump_down": "{metric} is about 1/{ratio} of its usual level. A change this big is often a data problem (per case read as per item, rows loaded twice). Confirm it at the source first.",
+      "history": "Based on only {weeks} weeks of history, so 'usual' is not well established."
+    },
+    "whyTitle": "Why you are seeing this",
+    "why": {
+      "above": "above",
+      "below": "below",
+      "threshold": "{metric}{where} is {value}{unit}, {side} the alert level of {limit}{unit}. An alert level fires whatever the trend.",
+      "zscore": "{metric}{where} has been {pct}% {sideOf} its usual {usual}{unit} for several weeks, a bigger move than its normal week-to-week variation, in the direction that hurts.",
+      "wow": "{metric}{where} changed sharply in the latest week, against a usual level of {usual}{unit}, in the direction that hurts.",
+      "other": "{metric}{where} moved the wrong way against its history.",
+      "impact": "About {impact} is at stake, above the smallest problem worth a card.",
+      "confidence": "Confidence {n}%, worked out by code from how clear and how long the evidence is.",
+      "aboveOf": "above",
+      "belowOf": "below"
+    }
   },
   "initiatives": {
     "title": "Initiatives",

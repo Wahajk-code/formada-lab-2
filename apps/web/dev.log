@@ -1,18 +1,14 @@
 ▲ Next.js 16.4.6 (Turbopack)
 - Local:         http://localhost:3311
 - Network:       http://26.151.216.207:3311
-✓ Ready in 11.3s
-✓ Running next.config.ts took 3.2s
-⚠ Slow filesystem detected. The benchmark took 921ms. If \\?\D:\Freelancing\secondsight\insight-nodes\apps\web\.next\dev is a network drive, consider moving it to a local folder.
+✓ Ready in 14.3s
+✓ Running next.config.ts took 3.9s
+⚠ Slow filesystem detected. The benchmark took 941ms. If \\?\D:\Freelancing\secondsight\insight-nodes\apps\web\.next\dev is a network drive, consider moving it to a local folder.
 See more: https://nextjs.org/docs/app/guides/local-development
 - Experiments (use with caution):
   · serverActions
 
-○ Compiling /console/workspaces/[id]/onboarding/[step] ...
- GET /console/workspaces/fb192dd5-a11a-494e-bb8a-351a640f5849/onboarding/org 307 in 5.9s (next.js: 2.8s, application-code: 3.1s)
- GET /login?side=internal 200 in 658ms (next.js: 39ms, application-code: 619ms)
- GET /console/workspaces/fb192dd5-a11a-494e-bb8a-351a640f5849/onboarding/metrics 307 in 532ms (next.js: 16ms, application-code: 517ms)
- GET /login?side=internal 200 in 424ms (next.js: 3ms, application-code: 421ms)
- GET /console/workspaces/fb192dd5-a11a-494e-bb8a-351a640f5849/onboarding/org 200 in 5.6s (next.js: 48ms, application-code: 5.6s)
- GET /console/workspaces/fb192dd5-a11a-494e-bb8a-351a640f5849/onboarding/metrics 200 in 2.9s (next.js: 18ms, application-code: 2.9s)
- POST /console/workspaces/fb192dd5-a11a-494e-bb8a-351a640f5849/onboarding/metrics 200 in 963ms (next.js: 44ms, application-code: 919ms)
+○ Compiling /preview-card ...
+ GET /preview-card 200 in 1906ms (next.js: 1278ms, application-code: 628ms)
+ GET /preview-card 200 in 261ms (next.js: 5ms, application-code: 256ms)
+ GET /preview-card 200 in 481ms (next.js: 4ms, application-code: 476ms)

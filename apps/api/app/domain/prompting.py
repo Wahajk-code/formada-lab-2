@@ -42,6 +42,16 @@ def _bullets(items: list[str]) -> str:
     return "\n".join(f"- {i}" for i in items) if items else "- (none)"
 
 
+# Added when a signal carries data_notes: a number code finds hard to believe is checked first.
+DATA_NOTES_RULE = (
+    "# Signals with data_notes\n"
+    "A signal that has data_notes may be a data problem, not a business problem. For that card, "
+    "say in the what or so what that the number needs confirming at the source, and make the "
+    "first step of now_what that check. Do not recommend a business action as if the number "
+    "were certain."
+)
+
+
 def build_prompt(
     system: str,
     playbook: str,
@@ -64,10 +74,15 @@ def build_prompt(
     signals_section = "# Signals for this run\n" + json.dumps(
         [s.__dict__ for s in signals], ensure_ascii=False, indent=1, default=str
     )
-    user = "\n\n".join(
-        [f"# Department playbook\n{playbook.strip()}", role_section, rules_section, signals_section]
-    )
-    return Prompt(system=system.strip(), user=user)
+    parts = [
+        f"# Department playbook\n{playbook.strip()}",
+        role_section,
+        rules_section,
+        signals_section,
+    ]
+    if any(s.evidence.get("data_notes") for s in signals):
+        parts.append(DATA_NOTES_RULE)
+    return Prompt(system=system.strip(), user="\n\n".join(parts))
 
 
 REWRITE_LIMIT = 500

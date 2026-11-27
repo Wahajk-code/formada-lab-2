@@ -811,6 +811,25 @@ async def feedback_insights(tenant_id: uuid.UUID) -> dict[str, Any]:
             )
         ] += 1
 
+    reasons: Counter[str] = Counter()
+    data_problems = []
+    for f, card, name in feedback:
+        code, words = fb_rules.parse_reason(f.reason)
+        if f.type == "not_relevant":
+            reasons[code or "unspecified"] += 1
+        if code == fb_rules.WRONG_NUMBER:
+            data_problems.append(
+                {
+                    "role": titles.get(card.role_node_id, ""),
+                    "card": card.title,
+                    "metric": str((card.evidence or {}).get("metric", "")),
+                    "entity": str((card.evidence or {}).get("entity", "")),
+                    "notes": list((card.evidence or {}).get("data_notes") or []),
+                    "said": words,
+                    "by": name,
+                    "at": f.created_at.isoformat(),
+                }
+            )
     written: Counter[str] = Counter()
     for c in cards:
         if c.agent_key:
@@ -876,12 +895,22 @@ async def feedback_insights(tenant_id: uuid.UUID) -> dict[str, Any]:
             {"role": role, "category": category, "count": n}
             for (role, category), n in by_category.most_common()
         ],
+        "reasons": [
+            {
+                "code": code,
+                "label": fb_rules.NOT_RELEVANT_REASONS.get(code, "No reason given"),
+                "count": n,
+            }
+            for code, n in reasons.most_common()
+        ],
+        "data_problems": data_problems[:25],
         "recent": [
             {
                 "role": titles.get(card.role_node_id, ""),
                 "card": card.title,
                 "type": f.type,
-                "reason": f.reason,
+                "reason": fb_rules.parse_reason(f.reason)[1],
+                "reason_code": fb_rules.parse_reason(f.reason)[0],
                 "by": name,
                 "at": f.created_at.isoformat(),
             }

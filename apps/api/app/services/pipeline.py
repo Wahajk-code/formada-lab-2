@@ -13,6 +13,7 @@ from app.core.db import tenant_tx
 from app.core.logging import get_logger
 from app.core.settings import get_settings
 from app.domain import agents as agent_rules
+from app.domain import card_trust
 from app.domain import org as org_rules
 from app.domain import runs as run_rules
 from app.domain.card_validation import (
@@ -353,6 +354,7 @@ async def detect_signals(
                         score=_dec(d.score, 4),
                         evidence={
                             **sig.evidence,
+                            **_trust(sig.evidence, rules),
                             "source": {"snapshot_id": str(snapshot_id), "sql": sql_text},
                         },
                         status=d.status,
@@ -388,6 +390,18 @@ async def _profile(s: Any, role_id: uuid.UUID) -> tuple[RoleProfile, str | None]
         select(RoleArchetype.playbook).where(RoleArchetype.key == role.role_archetype_key)
     )
     return profile, playbook
+
+
+def _trust(evidence: dict[str, Any], rules: Any) -> dict[str, Any]:
+    """The notes (English, for the card writer) and their codes (for the app to translate) when
+    the number should be confirmed at the source, else nothing."""
+    codes = card_trust.note_codes(evidence, rules)
+    if not codes:
+        return {}
+    return {
+        "data_notes": [card_trust.format_note(n["code"], n["values"]) for n in codes],
+        "data_note_codes": codes,
+    }
 
 
 def _prompt_signal(sig: Signal, metric_key: str) -> PromptSignal:

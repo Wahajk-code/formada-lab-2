@@ -18,6 +18,10 @@ class RulesConfig:
     max_open_cards_per_role: int = 5
     card_expiry_days: int = 28
     rollup_top_n: int = 3
+    # Notes on a card whose number may be a data problem (domain/card_trust.py)
+    note_days_over: int = 180
+    note_jump_ratio: float = 4.0
+    note_min_history_weeks: int = 6
     # Detection
     trailing_weeks: int = 13
     recent_weeks: int = 3
@@ -108,6 +112,9 @@ class Setting:
 SCHEMA: dict[str, Setting] = {
     "max_open_cards_per_role": Setting("cards", "Open cards per role", "A role never sees more open cards than this; weaker ones expire.", 1, 20, "cards"),
     "card_expiry_days": Setting("cards", "Card expiry", "Open cards without action expire after this many days.", 7, 120, "days"),
+    "note_days_over": Setting("cards", "Duration that needs a check", "A duration in days above this gets a note on its card to check that the dates behind it are actual dates.", 30, 730, "days"),
+    "note_jump_ratio": Setting("cards", "Jump that needs a check", "A number this many times above (or one over this many times below) its usual level gets a note on its card to confirm it at the source, since such jumps are often a data problem.", 1.5, 20.0, "x"),
+    "note_min_history_weeks": Setting("cards", "History that needs a note", "A card based on fewer weeks of history than this says so.", 2, 52, "weeks"),
     "rollup_top_n": Setting("cards", "Roll-up size", "How many of the team's top cards a parent role sees.", 0, 10, "cards"),
     "trailing_weeks": Setting("detection", "Baseline window", "Weeks of history before the recent window that define normal.", 4, 52, "weeks"),
     "recent_weeks": Setting("detection", "Recent window", "Latest weeks whose mean is tested against the baseline.", 1, 8, "weeks"),
@@ -156,6 +163,9 @@ SIMPLE: dict[str, str] = {
     "max_open_cards_per_role": "How many cards one person can have open at once.",
     "card_expiry_days": "How long a card waits for an answer before it closes by itself.",
     "rollup_top_n": "How many of their team's cards a manager also sees.",
+    "note_days_over": "How long a duration may be before its card says to check the dates.",
+    "note_jump_ratio": "How many times its usual level a number may jump before its card says to check the data.",
+    "note_min_history_weeks": "Cards built on less history than this say so.",
     "trailing_weeks": "How many weeks of history define 'usual'.",
     "recent_weeks": "How many of the latest weeks are compared with usual.",
     "recent_exceed_min": "How many of those latest weeks must be off before we call it a trend.",

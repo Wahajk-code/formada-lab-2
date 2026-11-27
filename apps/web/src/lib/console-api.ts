@@ -151,11 +151,16 @@ export type FeedbackInsights = {
     top_reason: string | null;
   }[];
   rejections: { role: string; category: string; count: number }[];
+  /** Why owners called cards Not relevant (the reason they picked). */
+  reasons: { code: string; label: string; count: number }[];
+  /** Cards an owner said had a wrong number: a data problem to check, never a relevance one. */
+  data_problems: { role: string; card: string; metric: string; entity: string; notes: string[]; said: string; by: string; at: string }[];
   recent: {
     role: string;
     card: string;
     type: string;
     reason: string | null;
+    reason_code: string | null;
     by: string;
     at: string;
   }[];

@@ -82,30 +82,50 @@ async def _metric_id(s: Any, card: InsightCard) -> uuid.UUID | None:
 
 
 async def give_feedback(
-    principal: Principal, card_id: uuid.UUID, type_: str, reason: str | None
+    principal: Principal,
+    card_id: uuid.UUID,
+    type_: str,
+    reason: str | None,
+    reason_code: str | None = None,
 ) -> dict[str, Any]:
-    if error := fb_rules.check_feedback(type_, reason):
+    if error := fb_rules.check_feedback(type_, reason, reason_code):
         raise Invalid(error)
-    reason = (reason or "").strip() or None
+    stored = fb_rules.encode_reason(reason_code, reason)
     async with tenant_tx("user", principal.tenant_id, principal.person_id) as s:
         card = await _actionable_card(s, principal, card_id)
+        rules = await org_repo.rules(s)
         fb = Feedback(
             tenant_id=principal.tenant_id,
             card_id=card.id,
             role_node_id=card.role_node_id,
             person_id=principal.person_id,
             type=type_,
-            reason=reason,
+            reason=stored,
         )
         s.add(fb)
         # Immediate effect, before any review: the card closes and its fingerprint is
         # suppressed for this role (filtering reads feedback directly).
         card.status, card.closed_at = type_, datetime.now(UTC)
         await s.flush()
-        s.add(_audit(principal, f"card.{type_}", "insight_card", card.id, reason=reason))
+        s.add(
+            _audit(
+                principal, f"card.{type_}", "insight_card", card.id,
+                reason=reason, reason_code=reason_code,
+            )
+        )  # fmt: skip
         feedback_id = fb.id
+        suppress_days = rules.not_relevant_suppress_days
+        downweight_after = rules.not_relevant_for_downweight
+        effect = fb_rules.feedback_effect(type_, reason_code, suppress_days, downweight_after)
     scheduler.on_feedback(principal.tenant_id, feedback_id)  # compile it now, best effort
-    return {"status": type_, "card_id": str(card_id), "feedback_id": str(feedback_id)}
+    return {
+        "status": type_,
+        "card_id": str(card_id),
+        "feedback_id": str(feedback_id),
+        "effect": effect,
+        "suppress_days": suppress_days,
+        "downweight_after": downweight_after,
+    }
 
 
 # ---------------------------------------------------------------------------------------------

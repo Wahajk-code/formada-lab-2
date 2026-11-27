@@ -54,12 +54,20 @@ export async function actionCard(cardId: string, body: Record<string, unknown>):
   return attempt(async () => void (await api.actionCard(cardId, body)), CARD_PATHS);
 }
 
+export type FeedbackEffect = { suppress_days: number; downweight_after: number };
+
+/** The card is closed server-side; the page is refreshed by the caller once the owner has read
+ * what their answer does (so no revalidation here: it would remove the card, and the message). */
 export async function giveFeedback(
   cardId: string,
   type: "not_relevant" | "impossible",
   reason: string,
-): Promise<Result> {
-  return attempt(async () => void (await api.feedback(cardId, type, reason.trim() || null)), CARD_PATHS);
+  reasonCode: string | null = null,
+): Promise<Result<FeedbackEffect>> {
+  return attempt(async () => {
+    const res = await api.feedback(cardId, type, reason.trim() || null, reasonCode);
+    return { suppress_days: Number(res.suppress_days ?? 56), downweight_after: Number(res.downweight_after ?? 3) };
+  }, []);
 }
 
 export async function getCard(id: string): Promise<Result<import("@/lib/client-api").Card>> {

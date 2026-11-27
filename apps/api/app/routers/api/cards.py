@@ -19,6 +19,8 @@ router = APIRouter(tags=["cards"])
 class FeedbackIn(BaseModel):
     type: Literal["not_relevant", "impossible"]
     reason: str | None = Field(default=None, max_length=500)
+    # Why it is Not relevant: already_handled, too_small, not_my_call, not_now, wrong_number, other
+    reason_code: str | None = Field(default=None, max_length=30)
 
 
 class ActionIn(BaseModel):
@@ -57,7 +59,9 @@ async def action(card_id: uuid.UUID, body: ActionIn, principal: LivePrincipal) -
 async def feedback(
     card_id: uuid.UUID, body: FeedbackIn, principal: LivePrincipal
 ) -> dict[str, Any]:
-    return await feedback_service.give_feedback(principal, card_id, body.type, body.reason)
+    return await feedback_service.give_feedback(
+        principal, card_id, body.type, body.reason, body.reason_code
+    )
 
 
 @router.post("/cards/{card_id}/translate")

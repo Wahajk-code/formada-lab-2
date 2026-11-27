@@ -301,7 +301,20 @@
     "actionConfirm": "Lancer l’initiative",
     "not_relevantConfirm": "Marquer non pertinente",
     "impossibleConfirm": "Marquer impossible",
-    "feedback": "Rétroaction"
+    "feedback": "Rétroaction",
+    "reasonPrompt": "Pourquoi n’est-ce pas pertinent ?",
+    "reason_already_handled": "Déjà traité ou connu",
+    "reason_too_small": "Trop petit pour compter",
+    "reason_not_my_call": "Ce n’est pas ma décision",
+    "reason_not_now": "Ce n’est pas le bon moment",
+    "reason_wrong_number": "Le chiffre semble faux",
+    "reason_other": "Autre chose",
+    "wrongNumberPlaceholder": "Qu’est-ce qui semble faux ? Par exemple : le coût ressemble à un prix par caisse, pas par article",
+    "effect_impossible": "Fermée. Nous ne proposerons plus cette action précise à votre rôle. Notre équipe lit votre raison et pourra en faire une règle.",
+    "effect_wrong_number": "Merci, fermée. Nous avons signalé le chiffre à notre équipe données, qui vérifiera la source. Cela ne compte pas contre la mesure, et la carte pourra revenir quand les données seront justes.",
+    "effect_quiet": "Fermée. Nous ne vous montrerons plus cette carte pendant {weeks, plural, one {# semaine} other {# semaines}}.",
+    "effect_learn": "Fermée. Nous ne vous montrerons plus cette carte pendant {weeks, plural, one {# semaine} other {# semaines}}. Après {n} cas semblables sur la même mesure, nous proposerons de la montrer moins souvent à votre rôle, et notre équipe valide d’abord.",
+    "gotIt": "Compris"
   },
   "org": {
     "title": "Org Web",
@@ -1211,7 +1224,28 @@
       "superseded": "Remplacé"
     },
     "aggregated": "Données agrégées",
-    "vacantNote": "Rôle vacant · vous agissez comme son parent"
+    "vacantNote": "Rôle vacant · vous agissez comme son parent",
+    "dataCheck": "Vérifiez d’abord les données",
+    "note": {
+      "days": "{metric} de {value} jours est difficile à croire. Vérifiez que les dates derrière ce chiffre sont des dates réelles, pas des dates prévues.",
+      "percent": "{metric} de {value} dépasse 100 %, ce qui ne peut pas être juste. Vérifiez la source.",
+      "jump_up": "{metric} est {ratio} fois son niveau habituel. Un tel écart vient souvent d’un problème de données (prix par caisse lu comme prix par article, lignes chargées deux fois). Confirmez-le à la source d’abord.",
+      "jump_down": "{metric} vaut environ 1/{ratio} de son niveau habituel. Un tel écart vient souvent d’un problème de données (prix par caisse lu comme prix par article, lignes chargées deux fois). Confirmez-le à la source d’abord.",
+      "history": "Fondé sur seulement {weeks} semaines d’historique : le niveau « habituel » n’est pas bien établi."
+    },
+    "whyTitle": "Pourquoi vous voyez ceci",
+    "why": {
+      "above": "au-dessus du",
+      "below": "en dessous du",
+      "threshold": "{metric}{where} est à {value}{unit}, {side} seuil d’alerte de {limit}{unit}. Un seuil d’alerte se déclenche quelle que soit la tendance.",
+      "zscore": "{metric}{where} est {pct} % {sideOf} son niveau habituel de {usual}{unit} depuis plusieurs semaines, un écart plus grand que sa variation normale d’une semaine à l’autre, dans le sens qui coûte.",
+      "wow": "{metric}{where} a changé brusquement la dernière semaine, par rapport à un niveau habituel de {usual}{unit}, dans le sens qui coûte.",
+      "other": "{metric}{where} a évolué dans le mauvais sens par rapport à son historique.",
+      "impact": "Environ {impact} sont en jeu, au-dessus du plus petit problème qui mérite une carte.",
+      "confidence": "Confiance de {n} %, calculée par le code selon la clarté et la durée des preuves.",
+      "aboveOf": "au-dessus de",
+      "belowOf": "en dessous de"
+    }
   },
   "initiatives": {
     "title": "Initiatives",

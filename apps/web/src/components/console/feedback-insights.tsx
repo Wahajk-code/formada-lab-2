@@ -30,6 +30,38 @@ export function FeedbackInsightsView({ data }: { data: FeedbackInsights }) {
         )}
       </section>
 
+      {data.data_problems.length > 0 && (
+        <section className="space-y-2">
+          <h2 className="text-sm font-semibold">Owners say the number looks wrong · {data.data_problems.length}</h2>
+          <p className="text-xs text-muted-foreground">
+            A data problem, not a relevance one: these do not count towards showing the measure less often. Check the source of each measure (its Mapping, and its note below) and fix it there.
+          </p>
+          <ul className="space-y-2">
+            {data.data_problems.map((p, i) => (
+              <li key={i} className="rounded-xl border border-border bg-card px-4 py-3 text-sm shadow-card">
+                <p className="font-medium">{p.card}</p>
+                <p className="text-xs text-muted-foreground">
+                  {p.metric}
+                  {p.entity && <> · {p.entity}</>} · {p.role} · reported by {p.by} on {when(p.at)}
+                </p>
+                {p.said && <p className="mt-1">“{p.said}”</p>}
+                {p.notes.length > 0 && <p className="mt-1 text-xs text-brand">Our own check also said: {p.notes.join(" ")}</p>}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {data.reasons.length > 0 && (
+        <section className="space-y-3 rounded-2xl bg-surface p-4 shadow-card">
+          <h2 className="text-sm font-semibold">Why owners say Not relevant</h2>
+          <BarList
+            empty="No answers yet."
+            bars={data.reasons.map((r) => ({ key: r.code, label: r.label, value: r.count, display: String(r.count) }))}
+          />
+        </section>
+      )}
+
       <section className="space-y-2">
         <h2 className="text-sm font-semibold">Card fate per role and metric · last {data.since_days} days</h2>
         <div className="-mx-1 overflow-x-auto">
@@ -108,7 +140,8 @@ export function FeedbackInsightsView({ data }: { data: FeedbackInsights }) {
             <li key={i} className="rounded-lg bg-card px-3 py-2 text-xs shadow-card">
               <span className="font-medium">{f.card}</span>
               <p className="text-muted-foreground">
-                {f.type.replace("_", " ")} by {f.by} ({f.role}) · {when(f.at)}
+                {f.type.replace("_", " ")}
+                {f.reason_code && <> ({f.reason_code.replace(/_/g, " ")})</>} by {f.by} ({f.role}) · {when(f.at)}
                 {f.reason && <> · “{f.reason}”</>}
               </p>
             </li>

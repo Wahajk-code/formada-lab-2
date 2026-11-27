@@ -241,6 +241,9 @@ export type Evidence = {
   series: SeriesPoint[];
   drivers: Record<string, Record<string, unknown>>;
   source?: { snapshot_id: string; sql: string };
+  /** Set by code when the number may be a data problem: English sentences, and the same as codes. */
+  data_notes?: string[];
+  data_note_codes?: { code: string; values: Record<string, string> }[];
 };
 
 export type Card = {
@@ -554,8 +557,8 @@ export const api = {
   },
   actionDefaults: (cardId: string) => request<ActionDefaults>(`/api/cards/${cardId}/action`),
   actionCard: (cardId: string, body: Record<string, unknown>) => post(`/api/cards/${cardId}/action`, body),
-  feedback: (cardId: string, type: string, reason: string | null) =>
-    post(`/api/cards/${cardId}/feedback`, { type, reason }),
+  feedback: (cardId: string, type: string, reason: string | null, reasonCode: string | null) =>
+    post(`/api/cards/${cardId}/feedback`, { type, reason, reason_code: reasonCode }),
   decide: (initiativeId: string, choice: "keep" | "stop") =>
     post(`/api/initiatives/${initiativeId}/decision`, { choice }),
   rules: () => request<{ rules: Rule[] }>("/api/admin/rules"),

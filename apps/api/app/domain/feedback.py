@@ -17,6 +17,70 @@ from app.domain.config import RulesConfig
 
 FEEDBACK_TYPES = ("not_relevant", "impossible")
 
+# Why an owner calls a card Not relevant. The reason is stored in the feedback's reason text as
+# "[code] words", so no schema change is needed. Each code means something different to the loop:
+#   already_handled, not_now  the card is fine, just not wanted now. It closes and teaches nothing.
+#   too_small, not_my_call, other
+#                             not worth this role's time: counts towards a downweight.
+#   wrong_number              the number looks wrong: a DATA problem, not a relevance one. It never
+#                             counts towards a downweight; the data team sees it in the console.
+NOT_RELEVANT_REASONS: dict[str, str] = {
+    "already_handled": "Already handled or known",
+    "too_small": "Too small to matter",
+    "not_my_call": "Not my decision",
+    "not_now": "Not the right time",
+    "wrong_number": "The number looks wrong",
+    "other": "Something else",
+}
+RELEVANCE_REASONS = frozenset({"too_small", "not_my_call", "other"})
+WRONG_NUMBER = "wrong_number"
+
+
+def encode_reason(code: str | None, text: str | None) -> str | None:
+    """The reason as stored: "[code] words", just the words, or None."""
+    words = (text or "").strip()
+    if code:
+        return f"[{code}] {words}".strip()
+    return words or None
+
+
+def parse_reason(reason: str | None) -> tuple[str | None, str]:
+    """(code, words) of a stored reason. A reason with no known code is all words."""
+    text = (reason or "").strip()
+    if text.startswith("[") and "]" in text:
+        code, _, rest = text[1:].partition("]")
+        if code in NOT_RELEVANT_REASONS:
+            return code, rest.strip()
+    return None, text
+
+
+def counts_towards_downweight(reason: str | None) -> bool:
+    """Whether a Not relevant answer says the measure is not worth the role's time."""
+    code, _ = parse_reason(reason)
+    return code is None or code in RELEVANCE_REASONS
+
+
+def feedback_effect(type_: str, code: str | None, suppress_days: int, downweight_after: int) -> str:
+    """What the owner is told their answer does, in plain words (the loop made visible)."""
+    weeks = max(1, round(suppress_days / 7))
+    if type_ == "impossible":
+        return (
+            "Closed. We will not suggest this exact action to your role again. Our team reads your "
+            "reason and may turn it into a rule."
+        )
+    if code == WRONG_NUMBER:
+        return (
+            "Thanks, closed. We flagged the number to our data team, who will check the source. "
+            "This does not count against the measure; the card can return once the data is right."
+        )
+    if code in ("already_handled", "not_now"):
+        return f"Closed. We will not show this card to you again for {weeks} weeks."
+    return (
+        f"Closed. We will not show this card to you again for {weeks} weeks. After "
+        f"{downweight_after} like this on the same measure, we propose showing it less often to "
+        "your role, and our team reviews that first."
+    )
+
 
 @dataclass(frozen=True)
 class FeedbackItem:
@@ -49,12 +113,15 @@ class RuleProposal:
     source_feedback_ids: list[uuid.UUID]
 
 
-def check_feedback(type_: str, reason: str | None) -> str | None:
-    """Error message, or None if the feedback is valid (reason required for Impossible)."""
+def check_feedback(type_: str, reason: str | None, code: str | None = None) -> str | None:
+    """Error message, or None if the feedback is valid (reason required for Impossible; a reason
+    code only for Not relevant, and one we know)."""
     if type_ not in FEEDBACK_TYPES:
         return f"unknown feedback type {type_!r}"
     if type_ == "impossible" and not (reason or "").strip():
         return "a reason is required for Impossible"
+    if code is not None and (type_ != "not_relevant" or code not in NOT_RELEVANT_REASONS):
+        return f"unknown reason {code!r}"
     return None
 
 
@@ -84,7 +151,11 @@ def propose_rules(
                     (f.reason or "").strip(), [f.id],
                 )
             )  # fmt: skip
-        elif f.type == "not_relevant" and f.metric_id is not None:
+        elif (
+            f.type == "not_relevant"
+            and f.metric_id is not None
+            and counts_towards_downweight(f.reason)  # a wrong number is a data problem, not this
+        ):
             not_relevant[(f.role_node_id, f.metric_id)].append(f)
 
     for (role_id, metric_id), items in not_relevant.items():

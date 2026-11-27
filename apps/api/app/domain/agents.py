@@ -11,7 +11,10 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
 
+from app.domain.feedback import NOT_RELEVANT_REASONS, counts_towards_downweight, parse_reason
+
 AGENT_KINDS = ("card_writer", "translator", "rule_drafter", "onboarding")
+
 _NUMBER = re.compile(r"\d[\d\s.,]*\d|\d")
 
 
@@ -37,9 +40,14 @@ def select_examples(
     recent.sort(key=lambda c: (c.metric_key in metric_keys, c.at), reverse=True)
     half = max(1, limit // 2) if limit else 0
     positive = [c for c in recent if c.status == "actioned"][:half]
-    negative = [c for c in recent if c.status in ("not_relevant", "impossible")][
-        : limit - len(positive)
-    ]
+    # A card rejected because the number looked wrong, or because it was already handled or not
+    # wanted now, says nothing about whether this kind of card is useful: it is not a lesson.
+    negative = [
+        c
+        for c in recent
+        if c.status == "impossible"
+        or (c.status == "not_relevant" and counts_towards_downweight(c.reason))
+    ][: limit - len(positive)]
     return positive, negative
 
 
@@ -54,7 +62,9 @@ def examples_block(positive: list[PastCard], negative: list[PastCard]) -> str:
     if negative:
         lines.append("Cards they rejected (avoid suggesting the same kind of thing):")
         for c in negative:
-            why = f" (reason: {mask_numbers(c.reason)})" if c.reason else ""
+            code, words = parse_reason(c.reason)
+            said = ": ".join(x for x in (NOT_RELEVANT_REASONS.get(code or ""), words) if x)
+            why = f" (reason: {mask_numbers(said)})" if said else ""
             lines.append(f"- [{c.status}] {mask_numbers(c.title)}{why}")
     return "\n".join(lines)
 
