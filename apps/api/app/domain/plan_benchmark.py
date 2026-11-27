@@ -226,9 +226,9 @@ def run_metrics(
     mapping: dict[str, Any] | None,
     catalog: list[dict[str, Any]] | None,
 ) -> dict[str, Any] | None:
-    """roles_seen and known_templates are what the metrics step itself was shown (the roles with the
-    references measures attach to, and every template that could run), so a measure is judged
-    against the same world the AI worked in."""
+    """roles_seen are the roles the metrics step was shown (with the references measures attach
+    to); known_templates is every template the catalog and the metric library hold, including the
+    workspace's own, so a measure added later from the library is not called invented."""
     metrics = out.get("metrics") or []
     if not metrics:
         return None

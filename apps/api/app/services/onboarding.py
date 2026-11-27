@@ -376,7 +376,7 @@ def _add_plan_benchmarks(latest: dict[str, dict[str, Any]], rows: Sequence[Onboa
             "context_benchmark": plan_benchmark.run_metrics(
                 metrics["output"],
                 seen.get("roles"),
-                {str(t.get("key")) for t in seen.get("templates", [])},
+                {str(t.get("key")) for t in seen.get("templates", [])} | set(template_shapes()),
                 template_shapes(),
                 mapping,
                 org_seen.get("role_archetypes"),
