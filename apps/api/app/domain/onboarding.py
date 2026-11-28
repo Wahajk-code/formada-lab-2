@@ -102,6 +102,26 @@ class TableShape:
 # ---------------------------------------------------------------------------------------------
 
 
+# Said to the AI whenever the team gave notes. The agents' own prompts do not describe the
+# `team_notes` field, so without this the notes sat in the input and might be ignored.
+TEAM_NOTES_RULE = (
+    "team_notes are instructions from our team about this client. Follow them unless the data "
+    "contradicts them. If the data does contradict one, follow the data and say so plainly in your "
+    "caveats or questions. Never present a note as something the data showed."
+)
+
+
+def team_notes_rule(payload: dict[str, Any]) -> dict[str, str]:
+    """{"team_notes_rule": ...} when the payload carries notes (text or a list), else nothing."""
+    notes = payload.get("team_notes")
+    given = (
+        [n for n in notes if str(n).strip()]
+        if isinstance(notes, list)
+        else str(notes or "").strip()
+    )
+    return {"team_notes_rule": TEAM_NOTES_RULE} if given else {}
+
+
 def in_scope(schema: str, table: str, scope: Sequence[str]) -> bool:
     """Whether Discovery may profile this table. The scope lists schemas ("GOLD") and single tables
     ("GOLD.DIM_CALENDAR"); empty means everything the user can see. A customer may expose dozens of

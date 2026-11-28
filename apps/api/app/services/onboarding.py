@@ -747,6 +747,7 @@ async def _ask(
             "answer. Design the rest around them."
         )
         payload = {**payload, "fixed_by_team": fixed, "fixed_note": note}
+    payload = {**payload, **ob.team_notes_rule(payload)}
     async with tenant_tx("service", tenant_id) as s:
         found = await agent_repo.active(s, AGENTS[step])
         if found is None:

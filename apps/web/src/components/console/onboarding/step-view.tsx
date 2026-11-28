@@ -470,15 +470,14 @@ function SignoffPanel({
 const STAGE_COPY: Partial<
   Record<
     OnboardingStepName,
-    { icon: string; title: string; body: string; instructions: string; start: string; again: string; note?: string }
+    { icon: string; title: string; body: string; example: string; start: string; again: string; note?: string }
   >
 > = {
   discovery: {
     icon: "sparkles",
     title: "Discover source data",
     body: "Scan approved schemas and describe what each table contains.",
-    instructions:
-      "Discover the Sales and Purchasing tables. Identify their keys, columns and the business questions they can answer.",
+    example: "For example: stock rows before March are carried forward and should be ignored.",
     start: "Start AI discovery",
     again: "Run discovery again",
     note: "A new run starts fresh and ignores locks. Use the chat to change only some cards.",
@@ -487,8 +486,7 @@ const STAGE_COPY: Partial<
     icon: "sparkles",
     title: "Map source fields",
     body: "Match customer fields to Formada's standard model. Review the proposed target, rationale, and confidence.",
-    instructions:
-      "Map Sales and Purchasing fields to the Formada standard model. Flag uncertain matches for review.",
+    example: "For example: use invoiced sales, not placed orders. Treat location type STORE as retail.",
     start: "Generate AI mappings",
     again: "Regenerate mappings",
   },
@@ -496,8 +494,7 @@ const STAGE_COPY: Partial<
     icon: "sparkles",
     title: "Generate a metric catalog",
     body: "Use confirmed mappings and the Org Web to generate metrics and automatically match them to roles.",
-    instructions:
-      "Build actionable weekly metrics for Sales and Purchasing from the confirmed mappings. Give each metric a calculation, unit and threshold.",
+    example: "For example: the Buyer cares most about supplier lead time and fill rate.",
     start: "Generate metrics",
     again: "Regenerate",
     note: "Matching metrics keep their settings and role assignments.",
@@ -526,7 +523,9 @@ function AgentActions({
   const [showNotes, setShowNotes] = useState(
     Boolean(copy) || (name === "org" && !state.draft.nodes.length && !step),
   );
-  const [notes, setNotes] = useState(ownNotes(step?.notes) || copy?.instructions || "");
+  // Empty by default: the AI already follows its built-in instructions. This box is only for what is
+  // special about this client.
+  const [notes, setNotes] = useState(ownNotes(step?.notes));
   const [why, setWhy] = useState("");
   const [pending, start] = useTransition();
   const [msg, setMsg] = useState<string | null>(null);
@@ -586,7 +585,7 @@ function AgentActions({
           disabled={!can || pending || running}
           onClick={() =>
             start(async () => {
-              const res = await proposeOnboardingStep(id, name, notes === copy?.instructions ? "" : notes);
+              const res = await proposeOnboardingStep(id, name, notes.trim());
               setMsg(res.ok ? null : res.error);
               router.refresh();
             })
@@ -619,8 +618,9 @@ function AgentActions({
       </div>
       <div className="stage-form">
         <label>
-          Instructions
-          <textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={2000} disabled={!can || running} />
+          Extra instructions for the AI (optional)
+          <textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={2000} disabled={!can || running} placeholder={copy.example} />
+          <small className="rv-muted">The AI already follows its built-in instructions. Add notes only for what is special about this client. Leave it empty otherwise.</small>
         </label>
         {body}
       </div>
