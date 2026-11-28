@@ -28,6 +28,7 @@ from app.services import (
     onboarding_review,
     scheduler,
     trial_cards,
+    validation,
 )
 from app.services import auth as auth_service
 from app.services import feedback as feedback_service
@@ -361,6 +362,112 @@ async def lab_test(
 @router.get("/workspaces/{tenant_id}/feedback")
 async def feedback_insights(tenant_id: uuid.UUID, staff: CurrentStaff) -> dict[str, Any]:
     return await console.feedback_insights(tenant_id)
+
+
+# ---- validation and accuracy (docs/how-we-validate.md) --------------------------------------
+
+
+class ControlIn(BaseModel):
+    key: str = Field(min_length=2, max_length=80)
+    name: str = Field(min_length=2, max_length=200)
+    metric_key: str = Field(max_length=80)
+    entity: str | None = Field(default=None, max_length=200)
+    week: str | None = Field(default=None, max_length=10)
+    expected: float
+    tolerance_pct: float | None = Field(default=None, ge=0, le=100)
+    source: str = Field(default="", max_length=1000)
+    active: bool = True
+
+
+class IncidentIn(BaseModel):
+    entity: str = Field(max_length=200)
+    week: str = Field(max_length=10)
+    note: str = Field(default="", max_length=300)
+
+
+class BacktestIn(BaseModel):
+    metric_key: str | None = Field(default=None, max_length=80)
+    incidents: list[IncidentIn] = []
+
+
+class ReplayIn(BaseModel):
+    step: Literal["discovery", "mapping", "org", "metrics", "rules"]
+    version: int | None = None
+
+
+class CardWriterReplayIn(BaseModel):
+    agent: str = Field(max_length=80)
+    version: int
+    samples: int = Field(default=3, ge=1, le=5)
+
+
+@router.get("/workspaces/{tenant_id}/accuracy")
+async def accuracy(tenant_id: uuid.UUID, staff: CurrentStaff) -> dict[str, Any]:
+    return await validation.accuracy_view(tenant_id)
+
+
+@router.get("/workspaces/{tenant_id}/controls")
+async def controls(tenant_id: uuid.UUID, staff: CurrentStaff) -> dict[str, Any]:
+    return await validation.list_controls(tenant_id)
+
+
+@router.put("/workspaces/{tenant_id}/controls")
+async def save_control(
+    tenant_id: uuid.UUID, body: ControlIn, staff: ConfigWriter
+) -> dict[str, Any]:
+    return await validation.save_control(staff.actor, tenant_id, body.model_dump())
+
+
+@router.delete("/workspaces/{tenant_id}/controls/{key}")
+async def remove_control(tenant_id: uuid.UUID, key: str, staff: ConfigWriter) -> dict[str, Any]:
+    return await validation.remove_control(staff.actor, tenant_id, key)
+
+
+@router.post("/workspaces/{tenant_id}/controls/check")
+async def check_controls(tenant_id: uuid.UUID, staff: Evaluator) -> dict[str, Any]:
+    """Compare the control totals with the newest run's numbers now, without waiting for a run."""
+    done = await validation.reconcile_run(tenant_id)
+    return {"checked": done, **await validation.list_controls(tenant_id)}
+
+
+@router.get("/workspaces/{tenant_id}/validation")
+async def validation_results(
+    tenant_id: uuid.UUID, staff: CurrentStaff, kind: Annotated[str | None, Query()] = None
+) -> dict[str, Any]:
+    return await validation.results(tenant_id, kind)
+
+
+@router.post("/workspaces/{tenant_id}/validation/backtest")
+async def run_backtest(tenant_id: uuid.UUID, body: BacktestIn, staff: Evaluator) -> dict[str, Any]:
+    """Replay detection on the client's stored history. Reads stored numbers only: it asks neither
+    the warehouse nor the AI."""
+    if body.metric_key:
+        return await validation.backtest_metric(
+            staff.actor, tenant_id, body.metric_key, [i.model_dump() for i in body.incidents]
+        )
+    return await validation.backtest_all(staff.actor, tenant_id)
+
+
+@router.post("/workspaces/{tenant_id}/validation/stability")
+async def run_stability(tenant_id: uuid.UUID, body: ReplayIn, staff: Evaluator) -> dict[str, Any]:
+    """Ask one AI step twice on the same input. Two AI calls: it costs money."""
+    return await validation.stability_test(staff.actor, tenant_id, body.step, body.version)
+
+
+@router.post("/workspaces/{tenant_id}/validation/regression")
+async def run_regression(tenant_id: uuid.UUID, body: ReplayIn, staff: Evaluator) -> dict[str, Any]:
+    """Replay a prompt version on the input of the step's approved answer. One AI call."""
+    return await validation.regression_test(staff.actor, tenant_id, body.step, body.version)
+
+
+@router.post("/workspaces/{tenant_id}/validation/card-writer")
+async def run_card_writer_regression(
+    tenant_id: uuid.UUID, body: CardWriterReplayIn, staff: Evaluator
+) -> dict[str, Any]:
+    """Replay a card writer version on this workspace's real past prompts. Costs money."""
+    return await validation.card_writer_regression(
+        staff.actor, tenant_id, body.agent, body.version, body.samples
+    )
 
 
 # ---- AI onboarding (ADR 0026) ---------------------------------------------------------------

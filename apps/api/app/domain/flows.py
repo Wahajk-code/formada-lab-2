@@ -115,6 +115,13 @@ INGEST = Step(
     scope="role", reads=("run_step", "signal"), writes=("insight_card", "card_rejection", "run_step"),
     skips="Nothing came back to save: this role ends quietly.", failure="This role is marked failed. Other roles carry on.",
 )  # fmt: skip
+RECONCILE = Step(
+    "reconcile", "Check against the client's numbers",
+    "Compares our numbers with the control totals the client gave us (figures they already trust) and records how far apart they are.",
+    reads=("control_total", "metric_snapshot", "metric"), writes=("control_check",),
+    on_error="log", skips="No control totals for this workspace yet: nothing to compare.",
+    failure="Logged. The run still finishes.",
+)  # fmt: skip
 ROLLUP = Step(
     "rollup", "Refresh the roll-up",
     "Rebuilds each manager's summary of the top cards from the roles below them.",
@@ -168,14 +175,14 @@ WEEKLY = Flow(
     "weekly", "Weekly run",
     "Every Monday morning (each workspace's own time zone): measure everything, find signals, write the week's cards.",
     Schedule(0, note="Due Monday 05:00 in the workspace's time zone"),
-    (DUE, CREATE_RUN, METRICS, SIGNALS, PROMPT, LLM, INGEST, ROLLUP, FINISH),
+    (DUE, CREATE_RUN, METRICS, SIGNALS, PROMPT, LLM, INGEST, RECONCILE, ROLLUP, FINISH),
     run_type="weekly", also="Run now from a workspace",
 )  # fmt: skip
 DAILY = Flow(
     "daily_check", "Daily check",
     "Every other morning: re-measure the metrics with a daily check and write cards only for roles that need one.",
     Schedule(5, note="Due 05:00 in the workspace's time zone, except Monday"),
-    (DUE, CREATE_RUN, METRICS, DAILY_PLAN, SIGNALS, PROMPT, LLM, INGEST, ROLLUP, FINISH),
+    (DUE, CREATE_RUN, METRICS, DAILY_PLAN, SIGNALS, PROMPT, LLM, INGEST, RECONCILE, ROLLUP, FINISH),
     run_type="daily_check",
 )  # fmt: skip
 REMEASURE = Flow(

@@ -3,6 +3,7 @@ import Link from "next/link";
 
 import { Stat } from "@/components/charts/stat";
 import { ConfigEditor } from "@/components/console/config-editor";
+import { AccuracyView } from "@/components/console/accuracy";
 import { FeedbackInsightsView } from "@/components/console/feedback-insights";
 import { ListFilter } from "@/components/console/list-filter";
 import { LlmForm } from "@/components/console/llm-form";
@@ -14,7 +15,7 @@ import { consoleApi } from "@/lib/console-api";
 import { matches, newestFirst } from "@/lib/list-filter";
 import { cn } from "@/lib/utils";
 
-const TABS = ["overview", "org", "runs", "cards", "feedback", "config", "ai", "people", "activity"] as const;
+const TABS = ["overview", "org", "runs", "cards", "feedback", "accuracy", "config", "ai", "people", "activity"] as const;
 type Tab = (typeof TABS)[number];
 const LABEL: Record<Tab, string> = {
   overview: "Overview",
@@ -22,6 +23,7 @@ const LABEL: Record<Tab, string> = {
   runs: "Runs",
   cards: "Open cards",
   feedback: "Feedback",
+  accuracy: "Accuracy",
   config: "Config & rules",
   ai: "AI model",
   people: "People",
@@ -181,6 +183,8 @@ export default async function WorkspacePage({
     );
   } else if (tab === "feedback") {
     body = <FeedbackInsightsView data={await consoleApi.feedback(id)} />;
+  } else if (tab === "accuracy") {
+    body = <AccuracyView workspaceId={id} data={await consoleApi.accuracy(id)} />;
   } else if (tab === "config") {
     const [c, { templates }] = await Promise.all([consoleApi.workspaceConfig(id), consoleApi.measureTemplates(id)]);
     body = (

@@ -49,7 +49,7 @@ class Ports:
 
 
 def real_ports() -> Ports:
-    from app.services import digest, idempotency, ops, outcomes, pipeline
+    from app.services import digest, idempotency, ops, outcomes, pipeline, validation
     from app.services import feedback as feedback_service
     from app.services import runs as run_service
 
@@ -71,6 +71,7 @@ def real_ports() -> Ports:
             "daily_plan": pipeline.daily_plan,
             "outcomes_measure": outcomes.measure,
             "rollup": pipeline.rollup,
+            "reconcile": validation.reconcile_run,
             "finish_run": run_service.finish_run,
         },
         role_step={
@@ -199,6 +200,10 @@ async def _steps(
     for role in roles:  # one role at a time, as before
         bind_request_context(tenant_id=str(tenant_id), run_id=str(run_id))
         await run_role(ports, flow, tenant_id, run_id, uuid.UUID(str(role["id"])))
+    if flow.key in ("weekly", "daily_check"):  # our numbers against the client's own figures
+        _, err = await _tenant_step(ports, "reconcile", tenant_id, run_id)
+        if err is not None:
+            log.warning("flow.reconcile_failed", flow=flow.key, error=err[:200])
     _, err = await _tenant_step(ports, "rollup", tenant_id, run_id)
     if err is not None:
         log.warning("flow.rollup_failed", flow=flow.key, error=err[:200])  # the run still finishes

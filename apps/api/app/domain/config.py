@@ -22,6 +22,14 @@ class RulesConfig:
     note_days_over: int = 180
     note_jump_ratio: float = 4.0
     note_min_history_weeks: int = 6
+    control_total_tolerance_pct: float = 1.0
+    backtest_noisy_week_pct: float = 60.0
+    backtest_lead_weeks: int = 4
+    backtest_min_caught_pct: float = 80.0
+    stability_min_agreement_pct: float = 90.0
+    regression_min_agreement_pct: float = 90.0
+    accuracy_max_wrong_number_pct: float = 5.0
+    accuracy_min_feedback: int = 10
     # Detection
     trailing_weeks: int = 13
     recent_weeks: int = 3
@@ -117,6 +125,14 @@ SCHEMA: dict[str, Setting] = {
     "note_days_over": Setting("cards", "Duration that needs a check", "A duration in days above this gets a note on its card to check that the dates behind it are actual dates.", 30, 730, "days"),
     "note_jump_ratio": Setting("cards", "Jump that needs a check", "A number this many times above (or one over this many times below) its usual level gets a note on its card to confirm it at the source, since such jumps are often a data problem.", 1.5, 20.0, "x"),
     "note_min_history_weeks": Setting("cards", "History that needs a note", "A card based on fewer weeks of history than this says so.", 2, 52, "weeks"),
+    "control_total_tolerance_pct": Setting("cards", "Control total tolerance", "How far our number may be from a figure the client gave us before it counts as not matching, as a percentage of their figure.", 0.0, 20.0, "%"),
+    "backtest_noisy_week_pct": Setting("detection", "Too-noisy backtest", "When replayed on a client's history, a metric that would have raised a signal in more than this share of weeks is called too noisy.", 10.0, 100.0, "%"),
+    "backtest_lead_weeks": Setting("detection", "Backtest look-back", "A real incident counts as caught when a signal for it fired within this many weeks before it.", 1, 26, "weeks"),
+    "backtest_min_caught_pct": Setting("detection", "Incidents to catch", "The share of the real incidents a client names that the replay must catch.", 10.0, 100.0, "%"),
+    "stability_min_agreement_pct": Setting("agents", "Agreement between two runs", "Asked twice on the same input, an AI step must reach the same decisions at least this often to be called stable.", 50.0, 100.0, "%"),
+    "regression_min_agreement_pct": Setting("agents", "Approved answers kept", "A new prompt version, replayed on an input whose answer the team approved, must reproduce at least this share of that answer's decisions.", 50.0, 100.0, "%"),
+    "accuracy_max_wrong_number_pct": Setting("cards", "Wrong-number reports allowed", "Owners saying a card's number is wrong, as a share of the cards they rated. Above this the client's numbers are called not to be trusted.", 0.0, 50.0, "%"),
+    "accuracy_min_feedback": Setting("cards", "Cards rated before judging", "The accuracy page does not judge the owners' feedback until this many cards have been rated.", 1, 200, "cards"),
     "rollup_top_n": Setting("cards", "Roll-up size", "How many of the team's top cards a parent role sees.", 0, 10, "cards"),
     "trailing_weeks": Setting("detection", "Baseline window", "Weeks of history before the recent window that define normal.", 4, 52, "weeks"),
     "recent_weeks": Setting("detection", "Recent window", "Latest weeks whose mean is tested against the baseline.", 1, 8, "weeks"),
@@ -169,6 +185,14 @@ SIMPLE: dict[str, str] = {
     "note_days_over": "How long a duration may be before its card says to check the dates.",
     "note_jump_ratio": "How many times its usual level a number may jump before its card says to check the data.",
     "note_min_history_weeks": "Cards built on less history than this say so.",
+    "control_total_tolerance_pct": "How close our numbers must be to the client's own control totals.",
+    "backtest_noisy_week_pct": "Replayed on history, a metric firing in more weeks than this is too noisy.",
+    "backtest_lead_weeks": "How early a signal must come to count as catching a real incident.",
+    "backtest_min_caught_pct": "The share of named incidents the replay must catch.",
+    "stability_min_agreement_pct": "How often two runs of an AI step must reach the same decisions.",
+    "regression_min_agreement_pct": "The share of an approved answer a new prompt must reproduce.",
+    "accuracy_max_wrong_number_pct": "The share of rated cards whose number owners may call wrong.",
+    "accuracy_min_feedback": "Cards that must be rated before the feedback is judged.",
     "trailing_weeks": "How many weeks of history define 'usual'.",
     "recent_weeks": "How many of the latest weeks are compared with usual.",
     "recent_exceed_min": "How many of those latest weeks must be off before we call it a trend.",

@@ -131,6 +131,53 @@ export type StaffUser = {
 /** One semantic view the role can read, found when the connection was tested. */
 export type ViewReach = { view: string; tables: number; fields: number; measures: number; links: number };
 
+export type AccuracyStatus = "good" | "watch" | "bad" | "none";
+export type AccuracyLayer = { key: string; label: string; status: AccuracyStatus; detail: string };
+export type ControlRow = {
+  key: string;
+  name: string;
+  metric_key: string;
+  entity: string | null;
+  week: string | null;
+  expected: number;
+  tolerance_pct: number;
+  source: string;
+  active: boolean;
+  last: { status: "match" | "off" | "missing"; ours: number | null; diff_pct: number | null; checked_at: string; says: string } | null;
+};
+export type ValidationRow = {
+  id: string;
+  kind: "backtest" | "stability" | "regression";
+  subject: string;
+  verdict: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  summary: Record<string, any>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  detail: Record<string, any>;
+  created_by: string;
+  created_at: string;
+};
+export type Accuracy = {
+  overall: { status: AccuracyStatus; text: string };
+  layers: AccuracyLayer[];
+  people: {
+    cards: number;
+    rated: number;
+    action_rate_pct: number | null;
+    not_relevant_pct: number | null;
+    impossible_pct: number | null;
+    wrong_number: number;
+    wrong_number_pct: number | null;
+    status: AccuracyStatus;
+  };
+  window_days: number;
+  controls: ControlRow[];
+  default_tolerance_pct: number;
+  metrics: { key: string; name: string; unit: string }[];
+  benchmarks: Record<string, string>;
+  tests: { backtest: ValidationRow[]; stability: ValidationRow[]; regression: ValidationRow[] };
+};
+
 export type FeedbackInsights = {
   since_days: number;
   hints: { kind: "metric" | "agent"; target: string; text: string }[];
@@ -905,6 +952,18 @@ export const consoleApi = {
     send("PATCH", `/agents/${key}`, body),
   feedback: (id: string) =>
     request<FeedbackInsights>(`/workspaces/${id}/feedback`),
+  accuracy: (id: string) => request<Accuracy>(`/workspaces/${id}/accuracy`),
+  saveControl: (id: string, body: Record<string, unknown>) =>
+    send("PUT", `/workspaces/${id}/controls`, body),
+  removeControl: (id: string, key: string) =>
+    send("DELETE", `/workspaces/${id}/controls/${encodeURIComponent(key)}`),
+  checkControls: (id: string) => send("POST", `/workspaces/${id}/controls/check`, {}),
+  backtest: (id: string, metricKey: string | null, incidents: { entity: string; week: string; note: string }[]) =>
+    send<ValidationRow>("POST", `/workspaces/${id}/validation/backtest`, { metric_key: metricKey, incidents }),
+  stability: (id: string, step: string) =>
+    send<ValidationRow>("POST", `/workspaces/${id}/validation/stability`, { step }),
+  regression: (id: string, step: string, version: number | null) =>
+    send<ValidationRow>("POST", `/workspaces/${id}/validation/regression`, { step, version }),
   staff: () => request<StaffUser[]>("/staff"),
   createStaff: (body: Record<string, unknown>) =>
     send<StaffUser>("POST", "/staff", body),

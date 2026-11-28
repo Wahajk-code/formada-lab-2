@@ -88,6 +88,34 @@ export async function runFlowNow(key: string, tenantId: string | null) {
   return attempt(() => consoleApi.runFlow(key, tenantId), ["/console/workflows"]);
 }
 
+export async function saveControlTotal(id: string, body: Record<string, unknown>) {
+  return attempt(() => consoleApi.saveControl(id, body), [`/console/workspaces/${id}`]);
+}
+
+export async function removeControlTotal(id: string, key: string) {
+  return attempt(() => consoleApi.removeControl(id, key), [`/console/workspaces/${id}`]);
+}
+
+export async function checkControlTotals(id: string) {
+  return attempt(() => consoleApi.checkControls(id), [`/console/workspaces/${id}`]);
+}
+
+export async function runBacktest(
+  id: string,
+  metricKey: string | null,
+  incidents: { entity: string; week: string; note: string }[],
+) {
+  return attempt(() => consoleApi.backtest(id, metricKey, incidents), [`/console/workspaces/${id}`]);
+}
+
+export async function runStability(id: string, step: string) {
+  return attempt(() => consoleApi.stability(id, step), [`/console/workspaces/${id}`]);
+}
+
+export async function runRegression(id: string, step: string, version: number | null) {
+  return attempt(() => consoleApi.regression(id, step, version), [`/console/workspaces/${id}`]);
+}
+
 export async function runWorkspaceNow(id: string) {
   return attempt(() => consoleApi.runNow(id));
 }

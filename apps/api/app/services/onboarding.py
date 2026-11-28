@@ -467,6 +467,30 @@ def _input_summary(row: OnboardingStep) -> dict[str, Any]:
     return {"bytes": len(text), "keys": sorted(data.keys())}
 
 
+async def benchmark_verdicts(tenant_id: uuid.UUID) -> dict[str, str]:
+    """The verdict of each step's context benchmark on its latest proposal, for the accuracy page.
+    Read-only: unlike `state` it does not touch steps that look stuck."""
+    async with tenant_tx("service", tenant_id) as s:
+        rows = (
+            await s.scalars(
+                select(OnboardingStep)
+                .where(OnboardingStep.status.in_(("proposed", "approved", "superseded")))
+                .order_by(OnboardingStep.created_at.desc())
+            )
+        ).all()
+        metrics = (await s.scalars(select(Metric))).all()
+    latest: dict[str, dict[str, Any]] = {}
+    for r in rows:
+        if r.step not in latest:
+            latest[r.step] = {"output": _with_links(r)}
+    _add_plan_benchmarks(latest, rows, {m.sql_template_key for m in metrics})
+    return {
+        step: str(v["output"]["context_benchmark"]["verdict"])
+        for step, v in latest.items()
+        if v.get("output") and "context_benchmark" in v["output"]
+    }
+
+
 async def state(tenant_id: uuid.UUID) -> dict[str, Any]:
     async with tenant_tx("service", tenant_id) as s:
         tenant = await s.get(Tenant, tenant_id)

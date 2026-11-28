@@ -263,6 +263,27 @@ async def daily_plan(tenant_id: uuid.UUID, run_id: uuid.UUID) -> dict[str, Any]:
 # ---------------------------------------------------------------------------------------------
 
 
+def snapshot_inputs(
+    snap: Any,
+) -> tuple[dict[str, list[Point]], dict[str, dict[str, Any]], dict[str, float]]:
+    """What detection reads from a metric snapshot: the weekly series per entity, the driver
+    breakdowns per entity, and how much each entity has at stake (its exposure)."""
+    series = {
+        entity: [
+            Point(date.fromisoformat(p["week"][:10]), float(p["value"]), p.get("n")) for p in pts
+        ]
+        for entity, pts in snap.series.items()
+    }
+    drivers_by_entity: dict[str, dict[str, Any]] = defaultdict(dict)
+    exposure: dict[str, float] = {}
+    for name, d in snap.breakdown.items():
+        for entity, values in d["by_entity"].items():
+            drivers_by_entity[entity][name] = values
+            if isinstance(values, dict) and d.get("exposure") and d["exposure"] in values:
+                exposure[entity] = float(values[d["exposure"]] or 0)
+    return series, drivers_by_entity, exposure
+
+
 async def detect_role(
     s: Any,
     tenant: Tenant,
@@ -294,20 +315,7 @@ async def detect_role(
             currency=tenant.currency,
             threshold=float(threshold) if threshold is not None else None,
         )
-        series = {
-            entity: [
-                Point(date.fromisoformat(p["week"][:10]), float(p["value"]), p.get("n"))
-                for p in pts
-            ]
-            for entity, pts in snap.series.items()
-        }
-        drivers_by_entity: dict[str, dict[str, Any]] = defaultdict(dict)
-        exposure: dict[str, float] = {}
-        for name, d in snap.breakdown.items():
-            for entity, values in d["by_entity"].items():
-                drivers_by_entity[entity][name] = values
-                if isinstance(values, dict) and d.get("exposure") and d["exposure"] in values:
-                    exposure[entity] = float(values[d["exposure"]] or 0)
+        series, drivers_by_entity, exposure = snapshot_inputs(snap)
         for draft in detect(info, series, drivers_by_entity, exposure, rules):
             drafts.append(draft)
             snapshot_of[id(draft)] = (metric.id, snap.id, snap.sql_text)

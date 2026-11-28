@@ -59,6 +59,7 @@ from app.models.runs import (
     RunStep,
     Signal,
 )
+from app.models.validation import ControlCheck, ControlTotal, ValidationResult
 
 __all__ = [
     "Agent",
@@ -69,6 +70,8 @@ __all__ = [
     "CardRejection",
     "CardTranslation",
     "ConfigChange",
+    "ControlCheck",
+    "ControlTotal",
     "CustomTemplate",
     "DataArchetype",
     "Department",
@@ -107,5 +110,6 @@ __all__ = [
     "StaffUser",
     "SystemConfig",
     "Tenant",
+    "ValidationResult",
     "WarehouseConnection",
 ]
