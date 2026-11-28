@@ -733,6 +733,38 @@ async def _locked_items(
     return items, checks
 
 
+# The mini steps the page shows while a step runs. Each is recorded on the running step as it
+# starts (checks.progress), the page reads it with every refresh, and the final result replaces it.
+DISCOVERY_STAGES = [
+    ("list", "Listing the tables and views"),
+    ("tables", "Profiling the tables"),
+    ("time", "Reading the data's history"),
+    ("views", "Measuring the semantic views"),
+    ("joins", "Testing the links between tables"),
+    ("guide", "The AI writes the data guide"),
+    ("check", "Checking the guide"),
+]
+MAPPING_STAGES = [
+    ("ai", "The AI proposes a query for each data shape"),
+    ("check", "Running each query on the warehouse"),
+]
+
+
+def _stager(
+    tenant_id: uuid.UUID, step_id: uuid.UUID, stages: list[tuple[str, str]]
+) -> Callable[[str], Awaitable[None]]:
+    """A function that records which mini step a running step is on."""
+
+    async def say(key: str) -> None:
+        async with tenant_tx("service", tenant_id) as s:
+            row = await s.get(OnboardingStep, step_id)
+            if row is not None:
+                progress = {"stages": [{"key": k, "label": v} for k, v in stages], "current": key}
+                row.checks = {**(row.checks or {}), "progress": progress}
+
+    return say
+
+
 async def _ask(
     tenant_id: uuid.UUID, step_id: uuid.UUID, step: str, payload: dict[str, Any],
     schema: type[BaseModel], fake: BaseModel, retry: bool = False,
@@ -863,7 +895,13 @@ async def build_profile(
     conn: ConnectionConfig,
     join_budget: int = 40,
     min_overlap_pct: float = 90.0,
+    on_stage: Callable[[str], Awaitable[None]] | None = None,
 ) -> dict[str, Any]:
+    async def say(key: str) -> None:
+        if on_stage:
+            await on_stage(key)
+
+    await say("list")
     db = conn.database
     tables: dict[str, ob.TableShape] = {}
     for r in await _q(wh, conn, ob.tables_sql(db), "tables"):
@@ -876,6 +914,7 @@ async def build_profile(
             tables[key].columns.append(ob.Column(r["column_name"].upper(), r["data_type"]))
     shapes = [t for t in tables.values() if t.columns]
 
+    await say("tables")
     stats: dict[str, list[dict[str, Any]]] = {}
     rows: dict[str, int] = {}
     profile_tables: list[dict[str, Any]] = []
@@ -900,6 +939,7 @@ async def build_profile(
             if counts := ob.keyword_counts(kw):
                 keywords.append({"table": t.qualified, "column": col, "keywords": counts})
 
+    await say("time")
     time_profile: dict[str, Any] | None = None
     picked = ob.pick_time_table(shapes, stats, rows)
     if picked:
@@ -934,10 +974,12 @@ async def build_profile(
             ],
             "category_mix_changes": mixes,
         }
+    await say("views")
     keys = ob.key_candidates(profile_tables)
     semantic_views = await _semantic_views(wh, conn)
     measured_views = await _measure_views(wh, conn, semantic_views)
     key_overlaps = await _key_overlaps(wh, conn, semantic_views, time_profile)
+    await say("joins")
     comments = await _comments(wh, conn, tables)
     joins = await _test_joins(wh, conn, profile_tables, keys, join_budget, min_overlap_pct)
     return {
@@ -1130,6 +1172,7 @@ async def start_discovery(
     rules = await _rules(tenant_id)
 
     async def work(step_id: uuid.UUID) -> None:
+        say = _stager(tenant_id, step_id, DISCOVERY_STAGES)
         if lab():
             saved = await _lab_prior(tenant_id, "discovery")
             snaps = await lab_snapshots(tenant_id)
@@ -1139,8 +1182,13 @@ async def start_discovery(
             profile = pick.input["profile"]
         else:
             profile = await build_profile(
-                wh, conn, rules.discovery_join_probe_budget, rules.discovery_join_min_overlap_pct
+                wh,
+                conn,
+                rules.discovery_join_probe_budget,
+                rules.discovery_join_min_overlap_pct,
+                on_stage=say,
             )
+        await say("guide")
         payload = {
             "today": date.today().isoformat(),
             "profile": profile,
@@ -1157,6 +1205,7 @@ async def start_discovery(
             return
         data = out.model_dump()
         # Written by code, not the AI: every table of each view and every declared link.
+        await say("check")
         data["view_links"] = [semantic.graph(v) for v in profile.get("semantic_views", [])]
         # The links the views declare become cards the team can change. What the team removed,
         # changed or added before survives a new analysis: the customer's views have not changed.
@@ -1194,6 +1243,8 @@ async def start_mapping(
             "team_notes": [n for n in (discovery.notes, notes) if n],
         }
         fake = MappingOut(archetypes=[])
+        say = _stager(tenant_id, step_id, MAPPING_STAGES)
+        await say("ai")
         out = await _ask(tenant_id, step_id, "mapping", payload, MappingOut, fake)
         if out is None:
             return
@@ -1213,6 +1264,7 @@ async def start_mapping(
                 data["archetypes"] += [
                     p for p in again.model_dump()["archetypes"] if p["archetype"] in left_out
                 ]
+        await say("check")
         checks = await check_mapping(wh, conn, tenant_id, data, profile, archetypes)
         data, checks = await _repair_mapping(
             wh, conn, tenant_id, step_id, payload, archetypes, profile, data, checks, fake

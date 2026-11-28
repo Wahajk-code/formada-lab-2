@@ -628,6 +628,27 @@ function AgentActions({
   );
 }
 
+type StepProgress = { stages: { key: string; label: string }[]; current: string };
+
+/** The mini steps of a running step: done (tick), now (spinner), next (dot). A failed step marks
+ * the one it stopped on. */
+function Stages({ progress, failed = false }: { progress: StepProgress; failed?: boolean }) {
+  const at = Math.max(0, progress.stages.findIndex((s) => s.key === progress.current));
+  return (
+    <ol className="step-stages" aria-label="Progress">
+      {progress.stages.map((s, i) => {
+        const mode = i < at ? "done" : i === at ? (failed ? "failed" : "now") : "next";
+        return (
+          <li key={s.key} className={`stage-${mode}`} aria-current={mode === "now" ? "step" : undefined}>
+            {mode === "done" ? <Check className="size-4" /> : mode === "now" ? <LoaderCircle className="size-4 animate-spin" /> : mode === "failed" ? <TriangleAlert className="size-4" /> : <span className="dot" />}
+            <span>{s.label}</span>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
 /** What the team sees while an AI step runs or after it fails: plain words, a way to stop it, and
  * the technical details tucked away. A step never shows an endless spinner. */
 function StepStatus({ step, workspaceId, can, stepName }: { step: OnboardingStep; workspaceId: string; can: boolean; stepName: string }) {
@@ -658,6 +679,7 @@ function StepStatus({ step, workspaceId, can, stepName }: { step: OnboardingStep
             {Math.floor(secs / 60)}:{String(secs % 60).padStart(2, "0")} elapsed.{" "}
             {slow ? "You can stop it and run it again." : "This page updates by itself. Most steps take one to three minutes."}
           </p>
+          {(step.checks as { progress?: StepProgress } | null)?.progress && <Stages progress={(step.checks as { progress: StepProgress }).progress} />}
         </div>
         {can && (
           <button type="button" className="btn btn-secondary" disabled={pending} onClick={stop}>
@@ -675,6 +697,7 @@ function StepStatus({ step, workspaceId, can, stepName }: { step: OnboardingStep
       <div>
         <strong>This step did not finish</strong>
         <p>{reason}</p>
+        {(step.checks as { progress?: StepProgress } | null)?.progress && <Stages failed progress={(step.checks as { progress: StepProgress }).progress} />}
         {details && (
           <details>
             <summary>Technical details</summary>
