@@ -50,6 +50,8 @@ class RulesConfig:
     mapping_sku_overlap_min_pct: float = 60.0
     # Onboarding discovery: join tests per warehouse and the share of values a join must find
     discovery_join_probe_budget: int = 40
+    # Measuring queries on the customer's views that run at the same time (they do not depend on each other)
+    discovery_parallel_queries: int = 4
     discovery_join_min_overlap_pct: float = 90.0
     # Mapping health at the start of each run: change versus the approved mapping that raises a warning
     mapping_health_rows_change_pct: float = 30.0
@@ -135,6 +137,7 @@ SCHEMA: dict[str, Setting] = {
     "agent_examples_days": Setting("agents", "Example look-back", "Only feedback newer than this becomes an example.", 7, 730, "days"),
     "mapping_sku_overlap_min_pct": Setting("agents", "Item codes shared by mappings", "Share of recently sold item codes that must also appear in the stock and purchase mappings, or the mapping is refused (the shapes could not be joined by item).", 0, 100, "%"),
     "mapping_grain_tolerance_pct": Setting("agents", "Repeated rows in a mapping", "Share of a mapped source's rows allowed to repeat their grain (item, location, date) before onboarding refuses it.", 0, 20, "%"),
+    "discovery_parallel_queries": Setting("agents", "Measuring queries at once", "How many of the read-only measuring queries on the customer's views run at the same time during discovery. More is faster on their warehouse and costs the same work; 1 runs them one after another.", 1, 8, "queries"),
     "discovery_join_probe_budget": Setting("agents", "Join tests in discovery", "How many candidate joins discovery tests against the data (one query each).", 0, 200, "tests"),
     "discovery_join_min_overlap_pct": Setting("agents", "Join overlap to confirm", "Share of a column's values that must exist on the key side before a join counts as confirmed.", 50, 100, "%"),
     "mapping_health_rows_change_pct": Setting("runs", "Mapping row change", "A run warns when a mapped source has this much more or fewer rows than when it was approved.", 5, 200, "%"),
@@ -186,6 +189,7 @@ SIMPLE: dict[str, str] = {
     "mapping_sku_overlap_min_pct": "How many sold items must also appear in stock and purchasing before we trust the item codes.",
     "mapping_grain_tolerance_pct": "How many repeated rows a mapping may have before we call it a bad join.",
     "discovery_join_probe_budget": "How many joins we test against the customer's data during discovery.",
+    "discovery_parallel_queries": "How many measuring queries run at once on the customer's views during discovery.",
     "discovery_join_min_overlap_pct": "How well two columns must match before we call them a real join.",
     "mapping_health_rows_change_pct": "How big a jump in a customer's row counts we flag before computing metrics.",
     "mapping_health_fill_drop_pts": "How much emptier a mapped field can get before we flag it.",

@@ -901,6 +901,7 @@ async def build_profile(
     join_budget: int = 40,
     min_overlap_pct: float = 90.0,
     on_stage: Callable[..., Awaitable[None]] | None = None,
+    parallel: int = 1,
 ) -> dict[str, Any]:
     async def say(key: str, detail: str = "") -> None:
         if on_stage:
@@ -986,8 +987,8 @@ async def build_profile(
     async def where(detail: str) -> None:
         await say("views", detail)
 
-    measured_views = await _measure_views(wh, conn, semantic_views, where)
-    key_overlaps = await _key_overlaps(wh, conn, semantic_views, time_profile)
+    measured_views = await _measure_views(wh, conn, semantic_views, where, parallel)
+    key_overlaps = await _key_overlaps(wh, conn, semantic_views, time_profile, parallel)
     await say("joins")
     comments = await _comments(wh, conn, tables)
     joins = await _test_joins(wh, conn, profile_tables, keys, join_budget, min_overlap_pct)
@@ -1039,24 +1040,27 @@ async def _measure_views(
     conn: ConnectionConfig,
     views: list[dict[str, Any]],
     on_table: Callable[[str], Awaitable[None]] | None = None,
+    parallel: int = 1,
 ) -> int:
     """Measure each fact table of every semantic view: first and last date, how many dates, and
     how filled its identifying fields are over the last 30 days. Read-only aggregates, best effort:
-    a fact that cannot be measured keeps no `measured` entry. Returns how many were measured."""
-    done = 0
-    todo = sum(1 for v in views for t in v["tables"] if t["metrics"])
-    seen = 0
-    for v in views:
-        for t in v["tables"]:
-            if not t["metrics"]:
-                continue
-            seen += 1
-            if on_table:  # a table can take a minute or two on a big view: say which one
-                await on_table(f"{t['table']} ({seen} of {todo})")
-            date_dim, measure = semantic.pick_date_dim(t), semantic.pick_measure(t)
-            if not date_dim or not measure:
-                continue
-            dims = semantic.pick_key_dims(t, date_dim)
+    a fact that cannot be measured keeps no `measured` entry. Returns how many were measured.
+
+    The tables do not depend on each other, so `parallel` of them are measured at the same time.
+    Each result goes back to its own table in the original order, so the outcome is the same
+    whatever order the queries finish in (parallel=1 is the one-after-another run)."""
+    jobs = [(v, t) for v in views for t in v["tables"] if t["metrics"]]
+    total = len(jobs)
+    gate = asyncio.Semaphore(max(1, parallel))
+    lock = asyncio.Lock()
+    finished = 0
+
+    async def measure(v: dict[str, Any], t: dict[str, Any]) -> dict[str, Any] | None:
+        date_dim, measure = semantic.pick_date_dim(t), semantic.pick_measure(t)
+        if not date_dim or not measure:
+            return None
+        dims = semantic.pick_key_dims(t, date_dim)
+        async with gate:
             try:
                 range_q = semantic.range_sql(
                     conn.database, v["view"], t["table"], date_dim, measure
@@ -1073,23 +1077,44 @@ async def _measure_views(
                             f"semantic:fill:{t['table']}", 1, timeout_s=180))[0]  # fmt: skip
             except Exception as exc:
                 log.info("semantic.measure_skipped", table=t["table"], error=str(exc)[:160])
-                continue
-            t["measured"] = {"date_field": date_dim, "measure": measure,
-                             **semantic.summarize_measure(rng, fill, dims)}  # fmt: skip
+                return None
+        return {"date_field": date_dim, "measure": measure,
+                **semantic.summarize_measure(rng, fill, dims)}  # fmt: skip
+
+    async def tracked(v: dict[str, Any], t: dict[str, Any]) -> dict[str, Any] | None:
+        nonlocal finished
+        result = await measure(v, t)
+        async with lock:  # one progress note at a time, in the order the tables finish
+            finished += 1
+            if on_table:
+                await on_table(f"{finished} of {total} fact tables measured")
+        return result
+
+    if on_table:
+        await on_table(f"0 of {total} fact tables measured")
+    results = await asyncio.gather(*(tracked(v, t) for v, t in jobs))
+    done = 0
+    for (_v, t), measured in zip(jobs, results, strict=True):
+        if measured is not None:
+            t["measured"] = measured
             done += 1
     return done
 
 
 async def _key_overlaps(
     wh: WarehouseClient, conn: ConnectionConfig, views: list[dict[str, Any]],
-    time_profile: dict[str, Any] | None,
+    time_profile: dict[str, Any] | None, parallel: int = 1,
 ) -> list[dict[str, Any]]:  # fmt: skip
     """Do the item codes of the biggest readable table also appear in each measured view fact?
-    Item codes that differ make stock and sales impossible to join by item."""
+    Item codes that differ make stock and sales impossible to join by item.
+
+    The probes are chosen in a fixed order and stop at OVERLAP_PROBES answers. They run in batches
+    of at most `parallel`, never more than the answers still missing, and a probe that fails is
+    replaced by the next candidate: the same probes and the same order as one after another."""
     if not time_profile:
         return []
-    out: list[dict[str, Any]] = []
     left_cols = [c for c in time_profile["entity_columns"] if semantic.ITEM_LIKE.match(c)]
+    candidates: list[tuple[str, str, str, str]] = []  # (left, right, sql, table), in order
     for v in views:
         for t in v["tables"]:
             m = t.get("measured")
@@ -1098,23 +1123,34 @@ async def _key_overlaps(
                 continue
             since = (date.fromisoformat(m["last_date"]) - timedelta(days=30)).isoformat()
             for col in left_cols:
-                if len(out) >= semantic.OVERLAP_PROBES:
-                    return out
-                try:
-                    sql = semantic.codes_overlap_sql(
-                        semantic.table_codes_sql(conn.database, time_profile["table"], col,
-                                                 time_profile["date_column"], 30),
-                        semantic.view_codes_sql(conn.database, v["view"], t["table"], items[0],
-                                                m["date_field"], m["measure"], since),
-                    )  # fmt: skip
-                    row = (await _q(wh, conn, sql, f"semantic:overlap:{t['table']}", 1,
-                                    timeout_s=180))[0]  # fmt: skip
-                except Exception as exc:
-                    log.info("semantic.overlap_skipped", table=t["table"], error=str(exc)[:160])
-                    continue
-                left = f"{time_profile['table']}.{col}"
-                right = f"{v['view']}.{t['table']}.{items[0]}"
-                out.append(semantic.summarize_overlap(left, right, row))
+                sql = semantic.codes_overlap_sql(
+                    semantic.table_codes_sql(conn.database, time_profile["table"], col,
+                                             time_profile["date_column"], 30),
+                    semantic.view_codes_sql(conn.database, v["view"], t["table"], items[0],
+                                            m["date_field"], m["measure"], since),
+                )  # fmt: skip
+                candidates.append((
+                    f"{time_profile['table']}.{col}",
+                    f"{v['view']}.{t['table']}.{items[0]}",
+                    sql,
+                    t["table"],
+                ))  # fmt: skip
+
+    async def probe(c: tuple[str, str, str, str]) -> dict[str, Any] | None:
+        try:
+            row = (await _q(wh, conn, c[2], f"semantic:overlap:{c[3]}", 1, timeout_s=180))[0]
+        except Exception as exc:
+            log.info("semantic.overlap_skipped", table=c[3], error=str(exc)[:160])
+            return None
+        return semantic.summarize_overlap(c[0], c[1], row)
+
+    out: list[dict[str, Any]] = []
+    i = 0
+    while len(out) < semantic.OVERLAP_PROBES and i < len(candidates):
+        size = min(max(1, parallel), semantic.OVERLAP_PROBES - len(out))
+        batch = candidates[i : i + size]
+        i += len(batch)
+        out += [r for r in await asyncio.gather(*(probe(c) for c in batch)) if r is not None]
     return out
 
 
@@ -1204,6 +1240,7 @@ async def start_discovery(
                 rules.discovery_join_probe_budget,
                 rules.discovery_join_min_overlap_pct,
                 on_stage=say,
+                parallel=rules.discovery_parallel_queries,
             )
         await say("guide")
         payload = {
