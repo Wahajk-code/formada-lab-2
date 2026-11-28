@@ -290,6 +290,28 @@ async def connect_mock(actor: str, tenant_id: uuid.UUID) -> dict[str, Any]:
     })  # fmt: skip
 
 
+async def _reach(wh: WarehouseClient, conn: ConnectionConfig) -> list[dict[str, Any]]:
+    """The semantic views this role can read, as counts (names only, no data). Best effort: a
+    failure gives an empty list, which the page reads as "none found"."""
+    try:
+        views = await _semantic_views(wh, conn)
+    except Exception as exc:  # the login worked; listing the views is extra
+        log.warning("connection.reach_failed", error=str(exc)[:200])
+        return []
+    return [
+        {
+            "view": v["view"],
+            "tables": len(v.get("tables", [])),
+            "fields": sum(
+                t.get("dimension_count", len(t.get("dimensions", []))) for t in v.get("tables", [])
+            ),
+            "measures": sum(len(t.get("metrics", [])) for t in v.get("tables", [])),
+            "links": len(v.get("relationships", [])),
+        }
+        for v in views
+    ]
+
+
 async def save_connection(
     actor: str, tenant_id: uuid.UUID, body: dict[str, Any], warehouse: WarehouseClient | None = None
 ) -> dict[str, Any]:
@@ -318,8 +340,10 @@ async def save_connection(
     started = datetime.now(UTC)
     result: dict[str, Any]
     try:
-        await (warehouse or _warehouse()).ping(conn)
-        status, result = "ok", {"ok": True}
+        client = warehouse or _warehouse()
+        await client.ping(conn)
+        # What the role can read, found now so the Connect step can say so before any scan.
+        status, result = "ok", {"ok": True, "views": await _reach(client, conn)}
     except Exception as exc:  # any connector error is a failed test, shown to the team
         status, result = "failed", {"ok": False, "error": str(exc)[:500]}
     async with tenant_tx("service", tenant_id) as s:

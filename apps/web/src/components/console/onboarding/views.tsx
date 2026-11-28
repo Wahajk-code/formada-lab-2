@@ -608,13 +608,27 @@ function roleSetupSql(c: OnboardingState["connection"]) {
     `GRANT USAGE ON WAREHOUSE ${q(c?.warehouse_name, "FORMADA_WH")} TO ROLE ${role};`,
     `GRANT USAGE ON DATABASE ${db} TO ROLE ${role};`,
   ];
+  // An entry is a schema ("SEMANTIC_VIEWS") or one table ("GOLD.DIM_CALENDAR"). A schema gives its
+  // semantic views (SELECT on a semantic view is enough to query it), tables and views; a table
+  // gives only that table, plus USAGE on the schema it sits in.
+  const usage = new Set<string>();
   for (const name of c?.schemas?.length ? c.schemas : ["YOUR_SCHEMA"]) {
-    const schema = `${db}.${q(name, "YOUR_SCHEMA")}`;
-    lines.push(
-      `GRANT USAGE ON SCHEMA ${schema} TO ROLE ${role};`,
-      `GRANT SELECT ON ALL TABLES IN SCHEMA ${schema} TO ROLE ${role};`,
-      `GRANT SELECT ON ALL VIEWS IN SCHEMA ${schema} TO ROLE ${role};`,
-    );
+    const [schemaName, tableName] = name.includes(".") ? name.split(".", 2) : [name, ""];
+    const schema = `${db}.${q(schemaName, "YOUR_SCHEMA")}`;
+    if (!usage.has(schema)) {
+      usage.add(schema);
+      lines.push(`GRANT USAGE ON SCHEMA ${schema} TO ROLE ${role};`);
+    }
+    if (tableName) {
+      lines.push(`GRANT SELECT ON TABLE ${schema}.${q(tableName, "YOUR_TABLE")} TO ROLE ${role};`);
+    } else {
+      lines.push(
+        `GRANT SELECT ON ALL SEMANTIC VIEWS IN SCHEMA ${schema} TO ROLE ${role};`,
+        `GRANT SELECT ON FUTURE SEMANTIC VIEWS IN SCHEMA ${schema} TO ROLE ${role};`,
+        `GRANT SELECT ON ALL TABLES IN SCHEMA ${schema} TO ROLE ${role};`,
+        `GRANT SELECT ON ALL VIEWS IN SCHEMA ${schema} TO ROLE ${role};`,
+      );
+    }
   }
   lines.push(`GRANT ROLE ${role} TO USER ${q(c?.user_name, "FORMADA_SVC")};`);
   return lines.join("\n");

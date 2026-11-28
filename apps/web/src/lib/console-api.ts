@@ -128,6 +128,9 @@ export type StaffUser = {
   created_at: string;
 };
 
+/** One semantic view the role can read, found when the connection was tested. */
+export type ViewReach = { view: string; tables: number; fields: number; measures: number; links: number };
+
 export type FeedbackInsights = {
   since_days: number;
   hints: { kind: "metric" | "agent"; target: string; text: string }[];
@@ -530,7 +533,7 @@ export type OnboardingState = {
     secret_ref: string;
     monthly_credit_cap: number;
     status: "pending" | "ok" | "failed";
-    test_result: { ok: boolean; error?: string } | null;
+    test_result: { ok: boolean; error?: string; views?: ViewReach[] } | null;
     last_tested_at: string | null;
   } | null;
   done: Record<"connect" | OnboardingStepName, boolean>;

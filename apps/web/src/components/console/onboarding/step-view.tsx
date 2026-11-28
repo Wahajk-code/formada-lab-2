@@ -779,7 +779,7 @@ export function StepView({
           {(stepKey === "org" || stepKey === "metrics" || stepKey === "rules") && (
             <ContextBenchmark subject={stepKey} benchmark={(step?.output as { context_benchmark?: Benchmark | null } | null | undefined)?.context_benchmark} />
           )}
-          {stepKey === "connect" && state.connection?.status === "ok" && <ConnectReach guide={guide} />}
+          {stepKey === "connect" && state.connection?.status === "ok" && <ConnectReach guide={guide} tested={state.connection?.test_result?.views} />}
           {agent && step && (step.status === "running" || step.status === "failed") && (
             <StepStatus step={step} workspaceId={state.workspace.id} can={can} stepName={stepKey} />
           )}

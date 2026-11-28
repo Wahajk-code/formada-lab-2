@@ -1,14 +1,26 @@
 import { fmt, humanName, Section, Status } from "@/components/console/onboarding/review-kit";
-import type { OnboardingGuide } from "@/lib/console-api";
+import type { OnboardingGuide, ViewReach } from "@/lib/console-api";
 
 /**
  * What the connection can actually read, right after it passes the test. All data reaches us
  * through the customer's semantic views (ADR 0033), so the first thing to know is whether any view
  * is readable, and how big each one is. Shown once a scan has seen them.
  */
-export function ConnectReach({ guide }: { guide: OnboardingGuide | null }) {
-  if (!guide) return null;
-  const views = guide.semantic_views ?? [];
+export function ConnectReach({ guide, tested }: { guide: OnboardingGuide | null; tested?: ViewReach[] }) {
+  // Before any scan the profile has no views; the connection test found them already.
+  const scanned = guide?.semantic_views ?? [];
+  const rows: ViewReach[] = scanned.length
+    ? scanned.map((v) => ({
+        view: v.view,
+        tables: v.tables.length,
+        fields: v.tables.reduce((n, t) => n + t.dimensions.length, 0),
+        measures: v.tables.reduce((n, t) => n + t.metrics.length, 0),
+        links: v.relationships.length,
+      }))
+    : (tested ?? []);
+  // A test made before this list existed says nothing either way: do not claim "none found".
+  if (!scanned.length && tested === undefined) return null;
+  const views = rows;
   return (
     <Section
       id="rv-reach"
@@ -40,10 +52,10 @@ export function ConnectReach({ guide }: { guide: OnboardingGuide | null }) {
                     <b>{humanName(v.view)}</b>
                     <small className="rv-muted"> {v.view}</small>
                   </td>
-                  <td>{v.tables.length}</td>
-                  <td>{v.tables.reduce((n, t) => n + t.dimensions.length, 0)}</td>
-                  <td>{v.tables.reduce((n, t) => n + t.metrics.length, 0)}</td>
-                  <td>{v.relationships.length || <Status tone="partial">none declared</Status>}</td>
+                  <td>{v.tables}</td>
+                  <td>{v.fields}</td>
+                  <td>{v.measures}</td>
+                  <td>{v.links || <Status tone="partial">none declared</Status>}</td>
                 </tr>
               ))}
             </tbody>
