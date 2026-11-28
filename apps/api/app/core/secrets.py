@@ -5,6 +5,7 @@ the key material itself never touches Postgres, logs or the browser.
 """
 
 import base64
+import hashlib
 import json
 import os
 from functools import lru_cache
@@ -30,10 +31,15 @@ class EnvVault:
 
     ALIASES: ClassVar[dict[str, str]] = {"platform/snowflake_pat": "SNOWFLAKE_PAT"}
 
-    def get(self, ref: str) -> str:
-        name = self.ALIASES.get(ref) or (
+    @classmethod
+    def name_for(cls, ref: str) -> str:
+        """The environment variable that holds this secret."""
+        return cls.ALIASES.get(ref) or (
             "SECRET_" + "".join(c if c.isalnum() else "_" for c in ref).upper()
         )
+
+    def get(self, ref: str) -> str:
+        name = self.name_for(ref)
         value = os.environ.get(name)
         if value is None and (encoded := os.environ.get(name + "_B64")):
             value = base64.b64decode(encoded).decode("utf-8")
@@ -57,6 +63,19 @@ class Vault:
 
     def get_secret(self, ref: str) -> str:
         return self._backend.get(ref)
+
+    def public_key(self, ref: str) -> tuple[str, str]:
+        """(the public half of a private key held under this reference, as Snowflake's
+        RSA_PUBLIC_KEY wants it, and its fingerprint as `DESC USER` shows it). The private key does
+        not leave the vault: only what it can compute from it does."""
+        key = serialization.load_pem_private_key(self._backend.get(ref).encode(), password=None)
+        der = key.public_key().public_bytes(
+            serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo
+        )
+        return (
+            base64.b64encode(der).decode(),
+            "SHA256:" + base64.b64encode(hashlib.sha256(der).digest()).decode(),
+        )
 
     def get_private_key_der(self, ref: str) -> bytes:
         pem = self._backend.get(ref).encode()

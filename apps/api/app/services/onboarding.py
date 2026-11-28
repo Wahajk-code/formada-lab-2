@@ -20,6 +20,7 @@ from sqlalchemy import delete, func, select, update
 from app.core.db import global_tx, tenant_tx
 from app.core.errors import Conflict, Invalid, NotFound
 from app.core.logging import get_logger
+from app.core.secrets import get_vault
 from app.core.settings import get_settings
 from app.domain import discovery_benchmark as benchmark
 from app.domain import discovery_cards as dc
@@ -32,7 +33,7 @@ from app.domain.llm import estimated_cost, validate_choice
 from app.domain.templates import check_contract, render
 from app.integrations.llm import get_llm
 from app.integrations.replay import LabReplayWarehouse
-from app.integrations.snowflake import SnowflakeWarehouse
+from app.integrations.snowflake import PAT_REFS, SnowflakeWarehouse
 from app.integrations.warehouse import ConnectionConfig, WarehouseClient
 from app.models import (
     Agent,
@@ -192,6 +193,20 @@ async def resend_welcome(actor: str, tenant_id: uuid.UUID) -> dict[str, Any]:
     await console._log(actor, "workspace", "onboarding.welcome_sent", None,
                        {"to": owner.email}, tenant_id)  # fmt: skip
     return out
+
+
+def _key_info(ref: str) -> dict[str, Any]:
+    """The public key and fingerprint of the key the connection signs in with, so the setup SQL for
+    the customer's admin can carry the real public key. Only when the key is in the vault; the
+    private key is never part of the answer."""
+    none = {"public_key": None, "key_fingerprint": None, "key_in_vault": None}
+    if not ref or ref in PAT_REFS or ref.startswith("lab/"):
+        return none
+    try:
+        public, fingerprint = get_vault().public_key(ref)
+    except Exception:  # not in the vault yet, or not a key: the page says what to do
+        return {**none, "key_in_vault": False}
+    return {"public_key": public, "key_fingerprint": fingerprint, "key_in_vault": True}
 
 
 def _conn(wc: WarehouseConnection) -> ConnectionConfig:
@@ -540,6 +555,7 @@ async def state(tenant_id: uuid.UUID) -> dict[str, Any]:
             "database_name": wc.database_name,
             "schemas": wc.schemas,
             "secret_ref": wc.secret_ref,
+            **_key_info(wc.secret_ref),
             "monthly_credit_cap": float(wc.monthly_credit_cap),
             "status": wc.status,
             "test_result": wc.test_result,

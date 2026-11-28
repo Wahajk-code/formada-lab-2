@@ -598,19 +598,31 @@ export function RulesView({ out }: { out: any }) {
   );
 }
 
-/** The grants a customer's Snowflake admin runs to create the read-only role (names from the form). */
+/**
+ * The SQL a customer's Snowflake admin runs, generated from the form: the role, what it may read,
+ * the service user with its public key, and the check that proves the key is ours. The public key is
+ * the real one when the private key is in the vault, otherwise a placeholder that says what to do.
+ */
 function roleSetupSql(c: OnboardingState["connection"]) {
   const q = (v: string | undefined, fallback: string) => `"${(v || fallback).replace(/"/g, "")}"`;
   const role = q(c?.role_name, "FORMADA_READER");
   const db = q(c?.database_name, "YOUR_DATABASE");
+  const warehouse = q(c?.warehouse_name, "FORMADA_WH");
+  const user = q(c?.user_name, "FORMADA_SVC");
+  const key = c?.public_key ? `'${c.public_key}'` : `'<PUBLIC KEY: it appears here once the private key is in the vault under ${c?.secret_ref || "a key reference"}>'`;
   const lines = [
+    "-- Run as ACCOUNTADMIN (or a role that can create roles and users). Safe to run twice.",
+    "USE ROLE ACCOUNTADMIN;",
+    "",
+    "-- 1. A read-only role. It can read only what is granted below.",
     `CREATE ROLE IF NOT EXISTS ${role};`,
-    `GRANT USAGE ON WAREHOUSE ${q(c?.warehouse_name, "FORMADA_WH")} TO ROLE ${role};`,
+    `GRANT USAGE ON WAREHOUSE ${warehouse} TO ROLE ${role};`,
     `GRANT USAGE ON DATABASE ${db} TO ROLE ${role};`,
+    "",
+    "-- 2. What it may read. An entry is a schema, or one table (SCHEMA.TABLE).",
   ];
-  // An entry is a schema ("SEMANTIC_VIEWS") or one table ("GOLD.DIM_CALENDAR"). A schema gives its
-  // semantic views (SELECT on a semantic view is enough to query it), tables and views; a table
-  // gives only that table, plus USAGE on the schema it sits in.
+  // A schema gives its semantic views (SELECT on a semantic view is enough to query it), tables and
+  // views; a table gives only that table, plus USAGE on the schema it sits in.
   const usage = new Set<string>();
   for (const name of c?.schemas?.length ? c.schemas : ["YOUR_SCHEMA"]) {
     const [schemaName, tableName] = name.includes(".") ? name.split(".", 2) : [name, ""];
@@ -630,8 +642,32 @@ function roleSetupSql(c: OnboardingState["connection"]) {
       );
     }
   }
-  lines.push(`GRANT ROLE ${role} TO USER ${q(c?.user_name, "FORMADA_SVC")};`);
+  lines.push(
+    "",
+    "-- 3. The service user: it signs in with a key only, with no password and no MFA.",
+    `CREATE USER IF NOT EXISTS ${user} TYPE = SERVICE DEFAULT_ROLE = ${role} DEFAULT_WAREHOUSE = ${warehouse};`,
+    `ALTER USER ${user} SET RSA_PUBLIC_KEY = ${key};`,
+    `GRANT ROLE ${role} TO USER ${user};`,
+    "-- Our server's address is not fixed, so an IP allowlist on this user would lock us out. The key is the protection.",
+    "",
+    `-- 4. Check. RSA_PUBLIC_KEY_FP must read ${c?.key_fingerprint ?? "the fingerprint we send you"}`,
+    `DESC USER ${user};`,
+    `SHOW GRANTS TO ROLE ${role};`,
+    "",
+    "-- Optional: cap what we can spend. It applies to everything on that warehouse, so prefer one used only by us.",
+    `-- CREATE RESOURCE MONITOR "FORMADA_MONITOR" WITH CREDIT_QUOTA = ${c?.monthly_credit_cap ?? 25} FREQUENCY = MONTHLY START_TIMESTAMP = IMMEDIATELY TRIGGERS ON 100 PERCENT DO SUSPEND;`,
+    `-- ALTER WAREHOUSE ${warehouse} SET RESOURCE_MONITOR = "FORMADA_MONITOR";`,
+  );
   return lines.join("\n");
+}
+
+function keyStatus(c: OnboardingState["connection"]): string {
+  if (!c?.secret_ref) return "Type a Vault key reference above first: it names the key this SQL will carry.";
+  if (c.key_in_vault) return `The public key below comes from the key in the vault. Its fingerprint is ${c.key_fingerprint}. Send the admin this SQL and that fingerprint.`;
+  if (c.key_in_vault === false) {
+    return `No key is in the vault under ${c.secret_ref} yet. Make one with: python -m app.cli.client_key --ref ${c.secret_ref} --name <client>. Add the line it writes to the server's environment and restart. The public key then appears in this SQL.`;
+  }
+  return "";
 }
 
 function RoleSetupExample({ connection }: { connection: OnboardingState["connection"] }) {
@@ -640,10 +676,11 @@ function RoleSetupExample({ connection }: { connection: OnboardingState["connect
   return (
     <details className="role-setup" open>
       <summary>
-        <Icon name="key" size={17} /> <span>View example role setup</span>
+        <Icon name="key" size={17} /> <span>Setup SQL for the customer&apos;s Snowflake admin</span>
         <Icon name="chevron-down" size={16} />
       </summary>
-      <p>Your customer&apos;s Snowflake administrator can run this when preparing the read-only role.</p>
+      <p>Generated from the settings above. The admin runs it once to create the read-only role and the service user.</p>
+      {keyStatus(connection) && <p className="stage-helper">{keyStatus(connection)}</p>}
       <div className="role-setup-code">
         <pre>{sql}</pre>
         <button
@@ -872,7 +909,7 @@ export function ConnectStep({
           </div>
           <RoleSetupExample connection={c} />
           <p className="stage-helper">
-            The key itself never goes here: it lives in the vault under the reference. Locally the connection points at the fakesnow warehouse.
+            The private key never goes in this form: it lives in the vault under the reference. Only the public key is shown, to send to the admin.
           </p>
         </form>
       </section>

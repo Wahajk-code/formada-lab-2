@@ -531,6 +531,10 @@ export type OnboardingState = {
     database_name: string;
     schemas: string[];
     secret_ref: string;
+    /** Worked out by the API from the key in the vault (never the private key). */
+    public_key: string | null;
+    key_fingerprint: string | null;
+    key_in_vault: boolean | null;
     monthly_credit_cap: number;
     status: "pending" | "ok" | "failed";
     test_result: { ok: boolean; error?: string; views?: ViewReach[] } | null;
