@@ -711,6 +711,25 @@ async def cancel_step(actor: str, tenant_id: uuid.UUID, step: str) -> dict[str, 
     return {"status": "ok", "stopped": len(rows)}
 
 
+async def clear_attempts(actor: str, tenant_id: uuid.UUID, step: str) -> dict[str, Any]:
+    """Start a step over: forget its failed or stopped attempts, so it looks as if it was never run.
+
+    Only attempts that gave no answer are removed. A step that has a proposal or an approval, or
+    one that is still running, is left alone and refused (reopen it, or stop it first)."""
+    async with tenant_tx("service", tenant_id) as s:
+        rows = (await s.scalars(select(OnboardingStep).where(OnboardingStep.step == step))).all()
+        keep = [r for r in rows if r.status in ("running", "proposed", "approved", "superseded")]
+        if keep:
+            kinds = sorted({r.status for r in keep})
+            raise Conflict(
+                f"the {step} step has a {'/'.join(kinds)} attempt: only failed ones are cleared"
+            )
+        for r in rows:
+            await s.delete(r)
+    await console._log(actor, "workspace", f"onboarding.{step}.cleared", len(rows), 0, tenant_id)
+    return {"status": "ok", "cleared": len(rows)}
+
+
 async def _latest_output(tenant_id: uuid.UUID, step: str) -> dict[str, Any]:
     async with tenant_tx("service", tenant_id) as s:
         rows = (

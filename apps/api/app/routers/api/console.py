@@ -1044,6 +1044,14 @@ async def onboarding_cancel(
     return await onboarding.cancel_step(staff.actor, tenant_id, step)
 
 
+@router.delete("/workspaces/{tenant_id}/onboarding/{step}/attempts")
+async def onboarding_clear_attempts(
+    tenant_id: uuid.UUID, step: OnboardingStepName, staff: ConfigWriter
+) -> dict[str, Any]:
+    """Forget a step's failed attempts so it looks never run. Refused if it has an answer."""
+    return await onboarding.clear_attempts(staff.actor, tenant_id, step)
+
+
 @router.post("/workspaces/{tenant_id}/onboarding/{step}")
 async def onboarding_propose(
     tenant_id: uuid.UUID, step: OnboardingStepName, body: NotesIn, staff: ConfigWriter
