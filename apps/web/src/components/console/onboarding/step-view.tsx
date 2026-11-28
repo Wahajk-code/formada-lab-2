@@ -628,7 +628,7 @@ function AgentActions({
   );
 }
 
-type StepProgress = { stages: { key: string; label: string }[]; current: string };
+type StepProgress = { stages: { key: string; label: string }[]; current: string; detail?: string };
 
 /** The mini steps of a running step: done (tick), now (spinner), next (dot). A failed step marks
  * the one it stopped on. */
@@ -641,7 +641,10 @@ function Stages({ progress, failed = false }: { progress: StepProgress; failed?:
         return (
           <li key={s.key} className={`stage-${mode}`} aria-current={mode === "now" ? "step" : undefined}>
             {mode === "done" ? <Check className="size-4" /> : mode === "now" ? <LoaderCircle className="size-4 animate-spin" /> : mode === "failed" ? <TriangleAlert className="size-4" /> : <span className="dot" />}
-            <span>{s.label}</span>
+            <span>
+              {s.label}
+              {mode === "now" && progress.detail ? <small className="rv-muted"> · {progress.detail}</small> : null}
+            </span>
           </li>
         );
       })}
@@ -669,7 +672,9 @@ function StepStatus({ step, workspaceId, can, stepName }: { step: OnboardingStep
 
   if (running) {
     const secs = Math.max(0, Math.round((now - new Date(step.created_at).getTime()) / 1000));
-    const slow = secs > 180;
+    // Reading a live warehouse takes a while the first time: do not call that slow until much later.
+    const progress = (step.checks as { progress?: StepProgress } | null)?.progress;
+    const slow = secs > (progress?.current === "views" ? 1500 : 180);
     return (
       <div className={cn("step-status", slow && "slow")} role="status" aria-live="polite">
         <LoaderCircle className="size-4 animate-spin" />
@@ -677,7 +682,7 @@ function StepStatus({ step, workspaceId, can, stepName }: { step: OnboardingStep
           <strong>{slow ? "This is taking longer than usual" : "The AI is working"}</strong>
           <p>
             {Math.floor(secs / 60)}:{String(secs % 60).padStart(2, "0")} elapsed.{" "}
-            {slow ? "You can stop it and run it again." : "This page updates by itself. Most steps take one to three minutes."}
+            {slow ? "You can stop it and run it again." : progress?.current === "views" ? "Measuring a live warehouse takes 10 to 20 minutes the first time. This page updates by itself." : "This page updates by itself. Most steps take one to three minutes."}
           </p>
           {(step.checks as { progress?: StepProgress } | null)?.progress && <Stages progress={(step.checks as { progress: StepProgress }).progress} />}
         </div>

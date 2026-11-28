@@ -752,14 +752,19 @@ MAPPING_STAGES = [
 
 def _stager(
     tenant_id: uuid.UUID, step_id: uuid.UUID, stages: list[tuple[str, str]]
-) -> Callable[[str], Awaitable[None]]:
-    """A function that records which mini step a running step is on."""
+) -> Callable[..., Awaitable[None]]:
+    """A function that records which mini step a running step is on, and optionally where in it
+    ("SALES_PLACED (4 of 9)")."""
 
-    async def say(key: str) -> None:
+    async def say(key: str, detail: str = "") -> None:
         async with tenant_tx("service", tenant_id) as s:
             row = await s.get(OnboardingStep, step_id)
             if row is not None:
-                progress = {"stages": [{"key": k, "label": v} for k, v in stages], "current": key}
+                progress = {
+                    "stages": [{"key": k, "label": v} for k, v in stages],
+                    "current": key,
+                    "detail": detail,
+                }
                 row.checks = {**(row.checks or {}), "progress": progress}
 
     return say
@@ -895,11 +900,11 @@ async def build_profile(
     conn: ConnectionConfig,
     join_budget: int = 40,
     min_overlap_pct: float = 90.0,
-    on_stage: Callable[[str], Awaitable[None]] | None = None,
+    on_stage: Callable[..., Awaitable[None]] | None = None,
 ) -> dict[str, Any]:
-    async def say(key: str) -> None:
+    async def say(key: str, detail: str = "") -> None:
         if on_stage:
-            await on_stage(key)
+            await on_stage(key, detail)
 
     await say("list")
     db = conn.database
@@ -977,7 +982,11 @@ async def build_profile(
     await say("views")
     keys = ob.key_candidates(profile_tables)
     semantic_views = await _semantic_views(wh, conn)
-    measured_views = await _measure_views(wh, conn, semantic_views)
+
+    async def where(detail: str) -> None:
+        await say("views", detail)
+
+    measured_views = await _measure_views(wh, conn, semantic_views, where)
     key_overlaps = await _key_overlaps(wh, conn, semantic_views, time_profile)
     await say("joins")
     comments = await _comments(wh, conn, tables)
@@ -1026,16 +1035,24 @@ async def _semantic_views(wh: WarehouseClient, conn: ConnectionConfig) -> list[d
 
 
 async def _measure_views(
-    wh: WarehouseClient, conn: ConnectionConfig, views: list[dict[str, Any]]
+    wh: WarehouseClient,
+    conn: ConnectionConfig,
+    views: list[dict[str, Any]],
+    on_table: Callable[[str], Awaitable[None]] | None = None,
 ) -> int:
     """Measure each fact table of every semantic view: first and last date, how many dates, and
     how filled its identifying fields are over the last 30 days. Read-only aggregates, best effort:
     a fact that cannot be measured keeps no `measured` entry. Returns how many were measured."""
     done = 0
+    todo = sum(1 for v in views for t in v["tables"] if t["metrics"])
+    seen = 0
     for v in views:
         for t in v["tables"]:
             if not t["metrics"]:
                 continue
+            seen += 1
+            if on_table:  # a table can take a minute or two on a big view: say which one
+                await on_table(f"{t['table']} ({seen} of {todo})")
             date_dim, measure = semantic.pick_date_dim(t), semantic.pick_measure(t)
             if not date_dim or not measure:
                 continue
