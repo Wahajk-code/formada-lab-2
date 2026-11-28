@@ -761,13 +761,13 @@ export function StepView({
       <div className={cn("onboarding-grid", stepKey === "org" && "builder-layout")}>
       <div className="min-w-0 space-y-4">
 
-        <section className="stage-panel stage-content-panel space-y-4">
+        <section className={cn("stage-panel stage-content-panel space-y-4", stepKey === "connect" && !locked && "hidden")}>
           {locked && (
             <p className="rounded-xl bg-surface px-4 py-3 text-sm text-muted-foreground">
               {locked}
             </p>
           )}
-          {!locked && HAS_CHECKLIST(stepKey) && (ready || (stepKey === "connect" && state.connection)) && (
+          {!locked && stepKey !== "connect" && HAS_CHECKLIST(stepKey) && ready && (
             <Checklist
               key={`${stepKey}-${step?.id ?? ""}`}
               checks={state.review?.checklists[stepKey] ?? []}
@@ -779,7 +779,6 @@ export function StepView({
           {(stepKey === "org" || stepKey === "metrics" || stepKey === "rules") && (
             <ContextBenchmark subject={stepKey} benchmark={(step?.output as { context_benchmark?: Benchmark | null } | null | undefined)?.context_benchmark} />
           )}
-          {stepKey === "connect" && state.connection?.status === "ok" && <ConnectReach guide={guide} tested={state.connection?.test_result?.views} />}
           {agent && step && (step.status === "running" || step.status === "failed") && (
             <StepStatus step={step} workspaceId={state.workspace.id} can={can} stepName={stepKey} />
           )}
@@ -873,6 +872,12 @@ export function StepView({
         )}
         {stepKey === "org" && !locked && <OrgBuilder draft={state.draft} editable={false} />}
         {stepKey === "connect" && !locked && <ConnectStep state={state} can={editable} />}
+        {stepKey === "connect" && !locked && state.connection && (
+          <section className="stage-panel stage-content-panel space-y-4">
+            <Checklist key={`connect-${state.connection.last_tested_at ?? ""}`} checks={state.review?.checklists.connect ?? []} onDetails={toDetails} />
+            {state.connection.status === "ok" && <ConnectReach guide={guide} tested={state.connection.test_result?.views} />}
+          </section>
+        )}
         {stepKey === "trial" && !locked && (
           <>
             <TrialRunPanel state={state} canRun={editable} />
